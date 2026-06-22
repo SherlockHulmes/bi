@@ -6,9 +6,16 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# ⚠️ 首次部署必须设置以下环境变量！
+# ⚠️ 安全提示：
+# - 生产环境必须设置 SECRET_KEY 环境变量！
+# - 生产环境必须设置 DEBUG=False
+# - 详见 .env.example 和 SECURITY.md
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-change-me-in-production')
 DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 'yes')
+
+if DEBUG and SECRET_KEY == 'django-insecure-change-me-in-production':
+    import warnings
+    warnings.warn("⚠️ 正在使用默认 SECRET_KEY 和 DEBUG=True，请勿在生产环境中使用！")
 
 # 安全配置：ALLOWED_HOSTS 必须配置具体域名
 _hosts = os.getenv('ALLOWED_HOSTS', '127.0.0.1,localhost')
