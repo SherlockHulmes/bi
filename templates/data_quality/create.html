@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}新建质量规则 - BI 工具箱{% endblock %}
+{% block nav_data_quality %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h4><i class="bi bi-plus-circle"></i> 新建质量规则</h4>
+</div>
+
+<div class="card p-4" style="max-width:750px;">
+    <form method="post">
+        {% csrf_token %}
+        <div class="mb-3">
+            <label class="form-label">规则名称 <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" required placeholder="例如：贷款余额异常检查">
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">规则描述</label>
+            <textarea name="description" class="form-control" rows="2" placeholder="描述此规则的检查目的"></textarea>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">目标数据库 <span class="text-danger">*</span></label>
+            <select name="target_db" class="form-select" required>
+                <option value="">请选择数据库</option>
+                {% for db in db_connections %}
+                <option value="{{ db.pk }}">{{ db.name }} ({{ db.host }}:{{ db.port }}/{{ db.database }})</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">SQL 查询 <span class="text-danger">*</span></label>
+            <textarea name="sql_query" class="form-control font-monospace" rows="5" required placeholder="SELECT * FROM table WHERE condition"></textarea>
+            <small class="text-muted">输入要执行的 SQL 查询语句</small>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">告警条件</label>
+                <select name="condition_type" class="form-select" id="conditionType">
+                    {% for val, label in condition_choices %}
+                    <option value="{{ val }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-4" id="columnField" style="display:none;">
+                <label class="form-label">检查列名</label>
+                <input type="text" name="check_column" class="form-control" placeholder="列名">
+            </div>
+            <div class="col-md-4" id="thresholdField" style="display:none;">
+                <label class="form-label">阈值</label>
+                <input type="number" name="threshold" class="form-control" step="any" value="0">
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">执行计划</label>
+            <div class="d-flex gap-3 flex-wrap">
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="manual" id="typeManual" checked>
+                    <label class="form-check-label" for="typeManual">仅手动</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="every_minutes" id="typeEveryMinutes">
+                    <label class="form-check-label" for="typeEveryMinutes">每N分钟</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="daily" id="typeDaily">
+                    <label class="form-check-label" for="typeDaily">每天</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="weekly" id="typeWeekly">
+                    <label class="form-check-label" for="typeWeekly">每周</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="monthly" id="typeMonthly">
+                    <label class="form-check-label" for="typeMonthly">每月</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-3" id="intervalSection" style="display:none;">
+            <label class="form-label">执行间隔（分钟）</label>
+            <input type="number" name="interval_minutes" class="form-control" style="width:120px;" min="1" max="1440" value="5">
+            <small class="text-muted">范围 1-1440，例如 5 表示每 5 分钟执行一次</small>
+        </div>
+
+        <div class="mb-3" id="timeSection" style="display:none;">
+            <label class="form-label">执行时间</label>
+            <div class="d-flex gap-2 align-items-center">
+                <select name="hour" class="form-select" style="width:auto;" id="hourSelect"></select>
+                <span>:</span>
+                <select name="minute" class="form-select" style="width:auto;" id="minuteSelect"></select>
+            </div>
+        </div>
+
+        <div class="mb-3" id="weeklySection" style="display:none;">
+            <label class="form-label">选择星期</label>
+            <div class="d-flex gap-2 flex-wrap">
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="0" id="wd0"><label class="form-check-label" for="wd0">周一</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="1" id="wd1"><label class="form-check-label" for="wd1">周二</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="2" id="wd2"><label class="form-check-label" for="wd2">周三</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="3" id="wd3"><label class="form-check-label" for="wd3">周四</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="4" id="wd4"><label class="form-check-label" for="wd4">周五</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="5" id="wd5"><label class="form-check-label" for="wd5">周六</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="6" id="wd6"><label class="form-check-label" for="wd6">周日</label></div>
+            </div>
+            <input type="hidden" name="days" id="daysHidden">
+        </div>
+
+        <div class="mb-3" id="monthlySection" style="display:none;">
+            <label class="form-label">每月几号</label>
+            <input type="number" name="day_of_month" class="form-control" style="width:120px;" min="1" max="28" value="1">
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label">通知渠道</label>
+                <select name="notify_channel" class="form-select">
+                    {% for val, label in notify_choices %}
+                    <option value="{{ val }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">收件人邮箱</label>
+                <input type="text" name="email_recipients" class="form-control" placeholder="多个邮箱用逗号分隔">
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_enabled" id="isEnabled" checked>
+                <label class="form-check-label" for="isEnabled">启用</label>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 创建规则</button>
+        <a href="{% url 'data_quality:rule_list' %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回列表</a>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 动态生成小时选项
+    const hourSelect = document.getElementById('hourSelect');
+    hourSelect.innerHTML = '';
+    for (let i = 0; i < 24; i++) {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = String(i).padStart(2, '0');
+        if (i === 8) opt.selected = true;
+        hourSelect.appendChild(opt);
+    }
+
+    // 动态生成分钟选项
+    const minuteSelect = document.getElementById('minuteSelect');
+    minuteSelect.innerHTML = '';
+    for (let m = 0; m < 60; m++) {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = String(m).padStart(2, '0');
+        minuteSelect.appendChild(opt);
+    }
+
+    // 条件类型切换
+    document.getElementById('conditionType').addEventListener('change', function() {
+        const val = this.value;
+        document.getElementById('columnField').style.display = ['value_gt', 'value_lt', 'value_eq'].includes(val) ? 'block' : 'none';
+        document.getElementById('thresholdField').style.display = ['value_gt', 'value_lt', 'value_eq'].includes(val) ? 'block' : 'none';
+    });
+
+    // 调度类型切换
+    document.querySelectorAll('.schedule-type').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const type = radio.value;
+            document.getElementById('intervalSection').style.display = type === 'every_minutes' ? 'block' : 'none';
+            document.getElementById('timeSection').style.display = (type === 'manual' || type === 'every_minutes') ? 'none' : 'flex';
+            document.getElementById('weeklySection').style.display = type === 'weekly' ? 'block' : 'none';
+            document.getElementById('monthlySection').style.display = type === 'monthly' ? 'block' : 'none';
+        });
+    });
+
+    // 提交前合并星期
+    document.querySelector('form').addEventListener('submit', () => {
+        const checked = Array.from(document.querySelectorAll('input[name="weekday"]:checked')).map(cb => cb.value);
+        document.getElementById('daysHidden').value = checked.join(',');
+    });
+</script>
+{% endblock %}

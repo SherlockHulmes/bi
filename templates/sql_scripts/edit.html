@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}编辑脚本 - BI 工具箱{% endblock %}
+{% block nav_scripts %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h4><i class="bi bi-pencil-square"></i> 编辑 SQL 脚本</h4>
+</div>
+
+<div class="card p-4">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="mb-3">
+            <label class="form-label">脚本名称 <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" required value="{{ script.name }}">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">脚本说明</label>
+            <textarea name="description" class="form-control" rows="2">{{ script.description }}</textarea>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">目标数据库</label>
+            <select name="target_db" class="form-select">
+                <option value="">使用默认数据库</option>
+                {% for db in db_connections %}
+                <option value="{{ db.pk }}" {% if script.target_db and script.target_db.pk == db.pk %}selected{% endif %}>{{ db.name }} ({{ db.host }}:{{ db.port }}/{{ db.database }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">替换 SQL 文件（可选，留空则保留当前）</label>
+            <input type="file" name="file" class="form-control" accept=".sql,.txt">
+            {% if script.file %}<small class="text-muted">当前文件: {{ script.file.name }}</small>{% endif %}
+        </div>
+        <div class="mb-3">
+            <label class="form-label">SQL 内容</label>
+            <textarea name="content" class="form-control font-monospace" rows="10">{{ sql_content }}</textarea>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">执行超时（秒）</label>
+            <input type="number" name="timeout" class="form-control" value="{{ script.timeout }}" min="10" max="3600">
+        </div>
+        <div class="mb-3">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_active" id="isActive" {% if script.is_active %}checked{% endif %}>
+                <label class="form-check-label" for="isActive">启用</label>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存修改</button>
+        <a href="{% url 'scripts:detail' script.pk %}" class="btn btn-outline-secondary">取消</a>
+    </form>
+</div>
+{% endblock %}

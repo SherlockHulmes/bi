@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}报表需求 - BI 工具箱{% endblock %}
+{% block nav_reports %}active{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4><i class="bi bi-clipboard-data"></i> 报表需求列表</h4>
+    <a href="{% url 'reports:create' %}" class="btn btn-primary"><i class="bi bi-plus-lg"></i> 新建需求</a>
+</div>
+
+<div class="card p-3 mb-3">
+    <form method="get" class="row g-2 align-items-end">
+        <div class="col-auto">
+            <select name="status" class="form-select form-select-sm">
+                <option value="">全部状态</option>
+                {% for val, label in status_choices %}
+                <option value="{{ val }}" {% if val == status_filter %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-auto">
+            <select name="priority" class="form-select form-select-sm">
+                <option value="">全部优先级</option>
+                {% for val, label in priority_choices %}
+                <option value="{{ val }}" {% if val == priority_filter %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-outline-primary btn-sm">筛选</button>
+            <a href="{% url 'reports:list' %}" class="btn btn-outline-secondary btn-sm">重置</a>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <table class="table table-hover mb-0">
+        <thead>
+            <tr>
+                <th>标题</th>
+                <th>优先级</th>
+                <th>状态</th>
+                <th>提出人</th>
+                <th>开发人员</th>
+                <th>创建人</th>
+                <th>期望日期</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in reports %}
+            <tr data-id="{{ r.pk }}">
+                <td style="cursor:pointer;" onclick="location.href='{% url 'reports:detail' r.pk %}'">{{ r.title }}</td>
+                <td>
+                    {% if r.priority == 'high' %}<span class="badge bg-danger">高</span>
+                    {% elif r.priority == 'medium' %}<span class="badge bg-warning">中</span>
+                    {% else %}<span class="badge bg-info">低</span>{% endif %}
+                </td>
+                <td>
+                    {% if r.status == 'pending' %}<span class="badge bg-secondary">待处理</span>
+                    {% elif r.status == 'in_progress' %}<span class="badge bg-primary">处理中</span>
+                    {% elif r.status == 'completed' %}<span class="badge bg-success">已完成</span>
+                    {% else %}<span class="badge bg-dark">已关闭</span>{% endif %}
+                </td>
+                <td>
+                    <input type="text" class="form-control form-control-sm requester-input" value="{{ r.requester }}" style="min-width:80px;" data-pk="{{ r.pk }}" data-field="requester" placeholder="输入提出人">
+                </td>
+                <td>
+                    <select class="form-select form-select-sm developer-select" data-pk="{{ r.pk }}" data-field="developer" style="min-width:100px;">
+                        <option value="">未分配</option>
+                        {% for u in users %}
+                        <option value="{{ u.pk }}" {% if r.developer and r.developer.pk == u.pk %}selected{% endif %}>{{ u.username }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td>
+                    <select class="form-select form-select-sm createdby-select" data-pk="{{ r.pk }}" data-field="created_by" style="min-width:100px;">
+                        <option value="">未设置</option>
+                        {% for u in users %}
+                        <option value="{{ u.pk }}" {% if r.created_by and r.created_by.pk == u.pk %}selected{% endif %}>{{ u.username }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td>{{ r.expected_date|default:"-" }}</td>
+                <td>{{ r.created_at|date:"Y-m-d H:i" }}</td>
+                <td>
+                    <button class="btn btn-outline-primary btn-sm save-btn" data-pk="{{ r.pk }}" title="保存修改"><i class="bi bi-check-lg"></i></button>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="9" class="text-center text-muted py-4">暂无需求</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF_TOKEN = "{{ csrf_token }}";
+
+// 内联更新字段
+async function inlineUpdate(pk, field, value) {
+    try {
+        const resp = await fetch(`/reports/${pk}/inline-update/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': CSRF_TOKEN
+            },
+            body: JSON.stringify({field, value})
+        });
+        const data = await resp.json();
+        if (!data.success) {
+            alert('保存失败: ' + data.error);
+            return false;
+        }
+        return true;
+    } catch(e) {
+        alert('请求失败: ' + e.message);
+        return false;
+    }
+}
+
+// 保存按钮点击
+document.querySelectorAll('.save-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const pk = btn.dataset.pk;
+        const row = btn.closest('tr');
+        
+        const requester = row.querySelector('.requester-input').value;
+        const developer = row.querySelector('.developer-select').value;
+        const createdBy = row.querySelector('.createdby-select').value;
+        
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        
+        let allOk = true;
+        if (!await inlineUpdate(pk, 'requester', requester)) allOk = false;
+        if (!await inlineUpdate(pk, 'developer', developer)) allOk = false;
+        if (!await inlineUpdate(pk, 'created_by', createdBy)) allOk = false;
+        
+        btn.disabled = false;
+        if (allOk) {
+            btn.innerHTML = '<i class="bi bi-check-lg text-success"></i>';
+            setTimeout(() => { btn.innerHTML = '<i class="bi bi-check-lg"></i>'; }, 2000);
+        } else {
+            btn.innerHTML = '<i class="bi bi-x-lg text-danger"></i>';
+            setTimeout(() => { btn.innerHTML = '<i class="bi bi-check-lg"></i>'; }, 2000);
+        }
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,56 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.egg-info
+dist/
+build/
+*.egg
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 敏感配置（绝不复制到镜像中）
+.env
+deploy/.env
+
+# 数据库
+db.sqlite3
+
+# 日志
+*.log
+logs/
+
+# Celery
+celerybeat-schedule.*
+celerybeat-schedule
+
+# Redis
+dump.rdb
+*.rdb
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 静态文件（运行时收集）
+staticfiles/
+
+# 媒体文件（运行时挂载）
+media/uploads/*
+!media/uploads/.gitkeep
+
+# 部署配置中的 .env（敏感信息）
+deploy/.env

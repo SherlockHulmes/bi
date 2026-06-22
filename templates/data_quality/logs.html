@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{% if rule %}{{ rule.name }} - 检查日志{% else %}检查日志{% endif %} - BI 工具箱{% endblock %}
+{% block nav_data_quality %}active{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4><i class="bi bi-clock-history"></i> {% if rule %}{{ rule.name }} - 检查日志{% else %}所有检查日志{% endif %}</h4>
+    <a href="{% url 'data_quality:rule_list' %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回规则列表</a>
+</div>
+
+<div class="card">
+    <table class="table table-hover mb-0">
+        <thead>
+            <tr>
+                <th>规则</th>
+                <th>状态</th>
+                <th>查询结果</th>
+                <th>告警信息</th>
+                <th>错误信息</th>
+                <th>耗时</th>
+                <th>触发方式</th>
+                <th>执行时间</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in logs %}
+            <tr>
+                <td>{% if not rule %}{{ log.rule.name }}{% else %}{{ log.rule.name }}{% endif %}</td>
+                <td>
+                    {% if log.status == 'normal' %}<span class="badge bg-success">正常</span>
+                    {% elif log.status == 'alert' %}<span class="badge bg-danger">告警</span>
+                    {% elif log.status == 'error' %}<span class="badge bg-warning">错误</span>
+                    {% endif %}
+                </td>
+                <td><small>{{ log.result_value|default:"-" }}</small></td>
+                <td><small class="text-danger">{{ log.alert_message|default:"-" }}</small></td>
+                <td><small class="text-warning">{{ log.error_message|default:"-" }}</small></td>
+                <td>{{ log.duration }}s</td>
+                <td>
+                    {% if log.triggered_by == 'manual' %}<span class="badge bg-info">手动</span>
+                    {% else %}<span class="badge bg-primary">定时</span>{% endif %}
+                </td>
+                <td>{{ log.executed_at|date:"Y-m-d H:i:s" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="8" class="text-center text-muted py-4">暂无检查记录</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

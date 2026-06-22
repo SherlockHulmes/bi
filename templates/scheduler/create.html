@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}新建定时任务 - BI 工具箱{% endblock %}
+{% block nav_scheduler %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h4><i class="bi bi-plus-circle"></i> 新建定时任务</h4>
+</div>
+
+<div class="card p-4" style="max-width:650px;">
+    <form method="post">
+        {% csrf_token %}
+        <div class="mb-3">
+            <label class="form-label">任务名称 <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" required placeholder="例如：每日对账汇总">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">关联脚本 <span class="text-danger">*</span></label>
+            <select name="script_id" class="form-select" required>
+                <option value="">请选择脚本</option>
+                {% for s in scripts %}
+                <option value="{{ s.pk }}">{{ s.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">执行频率</label>
+            <div class="d-flex gap-3 flex-wrap">
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="daily" id="typeDaily" checked>
+                    <label class="form-check-label" for="typeDaily">每天</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="weekly" id="typeWeekly">
+                    <label class="form-check-label" for="typeWeekly">每周</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="monthly" id="typeMonthly">
+                    <label class="form-check-label" for="typeMonthly">每月</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="custom" id="typeCustom">
+                    <label class="form-check-label" for="typeCustom">自定义 Cron</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">执行时间</label>
+            <div class="d-flex gap-2 align-items-center" id="timeSelector">
+                <select name="hour" class="form-select" style="width:auto;">
+                    {% for h in "01234567891011121314151617181920212223" %}
+                    {% endfor %}
+                </select>
+                <span>:</span>
+                <select name="minute" class="form-select" style="width:auto;">
+                    {% for m in "000510152025303540455055" %}
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <!-- 每周：选择星期几 -->
+        <div class="mb-3" id="weeklySection" style="display:none;">
+            <label class="form-label">选择星期</label>
+            <div class="d-flex gap-2 flex-wrap">
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="0" id="wd0"><label class="form-check-label" for="wd0">周一</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="1" id="wd1"><label class="form-check-label" for="wd1">周二</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="2" id="wd2"><label class="form-check-label" for="wd2">周三</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="3" id="wd3"><label class="form-check-label" for="wd3">周四</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="4" id="wd4"><label class="form-check-label" for="wd4">周五</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="5" id="wd5"><label class="form-check-label" for="wd5">周六</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="6" id="wd6"><label class="form-check-label" for="wd6">周日</label></div>
+            </div>
+            <input type="hidden" name="days" id="daysHidden">
+        </div>
+
+        <!-- 每月：选择几号 -->
+        <div class="mb-3" id="monthlySection" style="display:none;">
+            <label class="form-label">每月几号</label>
+            <input type="number" name="day_of_month" class="form-control" style="width:120px;" min="1" max="28" value="1">
+        </div>
+
+        <!-- 自定义 Cron -->
+        <div class="mb-3" id="customSection" style="display:none;">
+            <label class="form-label">Cron 表达式</label>
+            <input type="text" name="cron_expr" class="form-control" placeholder="0 8 * * 1-5">
+            <small class="text-muted">格式：分 时 日 月 周（如 0 8 * * 1-5 = 工作日8点）</small>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">收件人邮箱（用于发送执行结果文件）</label>
+            <input type="text" name="email_recipients" class="form-control" placeholder="多个邮箱用逗号分隔，如：a@test.com, b@test.com">
+            <small class="text-muted">配置后可通过"发邮件"按钮一键发送执行结果</small>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">通知渠道</label>
+            <select name="notify_channel" class="form-select">
+                <option value="none">不通知</option>
+                <option value="dingtalk">钉钉</option>
+                <option value="wecom">企业微信</option>
+            </select>
+        </div>
+
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 创建任务</button>
+        <a href="{% url 'scheduler:list' %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回列表</a>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 动态生成小时选项
+    const hourSelect = document.querySelector('select[name="hour"]');
+    hourSelect.innerHTML = '';
+    for (let i = 0; i < 24; i++) {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = String(i).padStart(2, '0');
+        if (i === 8) opt.selected = true;
+        hourSelect.appendChild(opt);
+    }
+
+    // 动态生成分钟选项
+    const minuteSelect = document.querySelector('select[name="minute"]');
+    minuteSelect.innerHTML = '';
+    for (let m = 0; m < 60; m++) {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = String(m).padStart(2, '0');
+        minuteSelect.appendChild(opt);
+    }
+
+    // 切换调度类型时显示/隐藏对应区域
+    document.querySelectorAll('.schedule-type').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const type = radio.value;
+            document.getElementById('weeklySection').style.display = type === 'weekly' ? 'block' : 'none';
+            document.getElementById('monthlySection').style.display = type === 'monthly' ? 'block' : 'none';
+            document.getElementById('customSection').style.display = type === 'custom' ? 'block' : 'none';
+            document.getElementById('timeSelector').style.display = type === 'custom' ? 'none' : 'flex';
+        });
+    });
+
+    // 提交前将选中的星期合并到 hidden 字段
+    document.querySelector('form').addEventListener('submit', () => {
+        const checked = Array.from(document.querySelectorAll('input[name="weekday"]:checked')).map(cb => cb.value);
+        document.getElementById('daysHidden').value = checked.join(',');
+    });
+</script>
+{% endblock %}

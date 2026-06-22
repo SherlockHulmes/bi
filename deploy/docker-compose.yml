@@ -1,0 +1,131 @@
+# ============================================================
+# BI 工具箱 - Docker Compose 生产部署配置
+# 
+# 使用方式:
+#   1. 复制 .env.example 为 .env 并填写真实配置
+#   2. docker compose up -d
+#
+# 服务说明:
+#   - web: Django 应用 (gunicorn)
+#   - celery-worker: Celery 异步任务处理
+#   - celery-beat: Celery 定时任务调度
+#   - redis: 消息队列
+#   - nginx: 反向代理 (可选)
+# ============================================================
+
+services:
+  # ==================== Redis ====================
+  redis:
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/redis:7-alpine
+    container_name: bi-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - bi-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==================== Django Web ====================
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: bi-web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DB_PATH=/app/data/db.sqlite3
+      - TZ=Asia/Shanghai
+      - DJANGO_SUPERUSER_USERNAME=${DJANGO_SUPERUSER_USERNAME:-admin}
+      - DJANGO_SUPERUSER_PASSWORD=${DJANGO_SUPERUSER_PASSWORD:-admin123456}
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+      - logs_volume:/app/logs
+      - sqlite_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - bi-network
+
+  # ==================== Celery Worker ====================
+  celery-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: bi-celery-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DB_PATH=/app/data/db.sqlite3
+      - TZ=Asia/Shanghai
+    volumes:
+      - logs_volume:/app/logs
+      - sqlite_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - bi-network
+    command: celery -A bi_toolkit worker -l info --concurrency=4
+
+  # ==================== Celery Beat ====================
+  celery-beat:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: bi-celery-beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DB_PATH=/app/data/db.sqlite3
+      - TZ=Asia/Shanghai
+    volumes:
+      - logs_volume:/app/logs
+      - sqlite_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - bi-network
+    command: celery -A bi_toolkit beat -l info --schedule=/app/data/celerybeat-schedule
+
+  # ==================== Nginx (可选) ====================
+  nginx:
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/nginx:alpine
+    container_name: bi-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_volume:/app/staticfiles:ro
+      - media_volume:/app/media:ro
+    depends_on:
+      - web
+    networks:
+      - bi-network
+
+volumes:
+  redis_data:
+  static_volume:
+  media_volume:
+  logs_volume:
+  sqlite_data:
+
+networks:
+  bi-network:
+    driver: bridge

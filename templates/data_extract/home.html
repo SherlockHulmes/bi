@@ -1,0 +1,1158 @@
+{% extends "base.html" %}
+{% block title %}自助取数 - BI 工具箱{% endblock %}
+{% block nav_data_extract %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+    .extract-layout { display: flex; gap: 16px; height: calc(100vh - 160px); }
+    .panel-left { width: 260px; flex-shrink: 0; overflow-y: auto; }
+    .panel-center { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .panel-bottom { height: 260px; flex-shrink: 0; overflow-y: auto; }
+    .table-item { padding: 6px 10px; margin: 2px 0; border-radius: 6px; cursor: grab; background: #f8fafc; border: 1px solid #e2e8f0; font-size: 0.85rem; transition: all 0.15s; }
+    .table-item:hover { background: #e0f2fe; border-color: #7dd3fc; }
+    .table-item:active { cursor: grabbing; }
+    .table-item .table-comment { color: #94a3b8; font-size: 0.75rem; margin-left: 6px; }
+    .canvas-area { flex: 1; background: #fafbfc; border: 2px dashed #e2e8f0; border-radius: 12px; overflow: auto; position: relative; min-height: 200px; }
+    .canvas-area.dragover { border-color: #3b82f6; background: #eff6ff; }
+    .canvas-empty { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; color: #94a3b8; pointer-events: none; }
+    .canvas-table { position: absolute; background: white; border: 2px solid #60a5fa; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); min-width: 200px; z-index: 10; }
+    .canvas-table .ct-header { background: #3b82f6; color: white; padding: 6px 12px; border-radius: 8px 8px 0 0; font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between; cursor: move; align-items: center; }
+    .canvas-table .ct-alias { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); border-radius: 4px; color: white; font-size: 0.75rem; padding: 1px 6px; width: 60px; text-align: center; }
+    .canvas-table .ct-alias::placeholder { color: rgba(255,255,255,0.6); }
+    .canvas-table .ct-close { cursor: pointer; opacity: 0.7; }
+    .canvas-table .ct-close:hover { opacity: 1; }
+    .canvas-table .ct-fields { padding: 4px 0; max-height: 200px; overflow-y: auto; }
+    .canvas-table .ct-field { padding: 3px 12px; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+    .canvas-table .ct-field:hover { background: #f0f9ff; }
+    .canvas-table .ct-field.selected { background: #dbeafe; font-weight: 500; }
+    .canvas-table .ct-field .ct-key { color: #f59e0b; font-size: 0.7rem; }
+    .canvas-table .ct-field.connecting { background: #fef3c7; border-left: 3px solid #f59e0b; }
+    .canvas-table .ct-field.connected { border-left: 3px solid #3b82f6; }
+    .query-bar { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 16px; margin-bottom: 12px; }
+    .query-bar .qb-section { margin-bottom: 6px; display: flex; align-items: flex-start; gap: 8px; }
+    .query-bar .qb-label { font-size: 0.8rem; font-weight: 600; color: #475569; min-width: 60px; padding-top: 4px; white-space: nowrap; }
+    .query-bar .qb-tags { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+    .qb-tag { display: inline-flex; align-items: center; gap: 4px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 2px 8px; font-size: 0.8rem; color: #1e40af; }
+    .qb-tag .qb-remove { cursor: pointer; color: #93c5fd; font-weight: bold; }
+    .qb-tag .qb-remove:hover { color: #dc2626; }
+    .conn-tag { background: #fef3c7; border-color: #fbbf24; color: #92400e; }
+    .field-alias-input { border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.7rem; padding: 0 4px; width: 70px; color: #475569; }
+    .cond-row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; flex-wrap: wrap; }
+    .cond-row select, .cond-row input { font-size: 0.8rem; padding: 2px 6px; }
+    .sql-editor { width: 100%; min-height: 80px; font-family: 'Consolas', monospace; font-size: 0.85rem; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; resize: vertical; }
+    .result-table { font-size: 0.8rem; }
+    .result-table th { position: sticky; top: 0; background: #f8fafc; white-space: nowrap; }
+    .result-table td { white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+    .result-bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
+    .sort-row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="extract-layout">
+    <div class="panel-left">
+        <div class="card h-100">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                <strong><i class="bi bi-database"></i> 数据源</strong>
+                <button class="btn btn-sm btn-outline-primary" onclick="openSaveModal()" title="保存当前查询"><i class="bi bi-save"></i></button>
+            </div>
+            <div class="card-body p-2">
+                <select id="dbSelect" class="form-select form-select-sm mb-2">
+                    <option value="">选择数据库...</option>
+                    {% for db in db_connections %}
+                    <option value="{{ db.pk }}">{{ db.name }} ({{ db.database }})</option>
+                    {% endfor %}
+                </select>
+                <input type="text" id="tableSearch" class="form-control form-control-sm mb-2" placeholder="搜索表名..." style="display:none;">
+                <div id="tableList" style="max-height: calc(100vh - 380px); overflow-y: auto;">
+                    <p class="text-muted text-center py-3" style="font-size:0.85rem;">请选择数据库</p>
+                </div>
+                {% if templates %}
+                <hr class="my-2">
+                <strong class="small"><i class="bi bi-bookmark"></i> 我的模板</strong>
+                <div id="templateList" style="max-height:150px;overflow-y:auto;">
+                    {% for tpl in templates %}
+                    <div class="table-item" style="cursor:pointer;" onclick="loadTemplate({{ tpl.pk }})">
+                        <i class="bi bi-file-earmark-code"></i> <strong>{{ tpl.name }}</strong>
+                        {% if tpl.description %}<span class="table-comment">{{ tpl.description }}</span>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="panel-center">
+        <div class="query-bar">
+            <div class="qb-section">
+                <span class="qb-label">字段</span>
+                <div class="qb-tags" id="selectedFields">
+                    <span class="text-muted" style="font-size:0.8rem;">点击画布中的字段添加，双击可编辑别名</span>
+                </div>
+            </div>
+            <div class="qb-section">
+                <span class="qb-label">连接</span>
+                <div class="qb-tags" id="connList">
+                    <span class="text-muted" style="font-size:0.8rem;">右键字段开始连接，左键另一表字段完成</span>
+                </div>
+            </div>
+            <div class="qb-section" id="condSection">
+                <span class="qb-label">条件</span>
+                <div style="flex:1;" id="condContainer"></div>
+                <button class="btn btn-outline-primary btn-sm" onclick="addCondition()" style="flex-shrink:0;"><i class="bi bi-plus"></i></button>
+            </div>
+            <div class="qb-section" id="sortSection">
+                <span class="qb-label">排序</span>
+                <div style="flex:1;" id="sortContainer"></div>
+                <button class="btn btn-outline-primary btn-sm" onclick="addSort()" style="flex-shrink:0;"><i class="bi bi-plus"></i></button>
+            </div>
+            <div class="qb-section">
+                <span class="qb-label">限制条数</span>
+                <input type="number" class="form-control form-control-sm" id="limitInput" value="100" min="1" max="10000" style="width:100px;">
+                <button class="btn btn-primary btn-sm" onclick="executeQuery()"><i class="bi bi-play-fill"></i> 执行查询</button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="switchToSqlMode()"><i class="bi bi-code"></i> SQL模式</button>
+                <button class="btn btn-outline-danger btn-sm" onclick="clearCanvas()"><i class="bi bi-trash"></i> 清空</button>
+            </div>
+        </div>
+
+        <div class="canvas-area" id="canvas">
+            <div class="canvas-empty" id="canvasEmpty">
+                <i class="bi bi-grid-3x3-gap" style="font-size:2rem;"></i>
+                <p class="mt-2">从左侧拖拽表到此处</p>
+            </div>
+        </div>
+
+        <div id="sqlModePanel" style="display:none; margin-top:12px;">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <strong><i class="bi bi-code"></i> SQL 查询</strong>
+                <button class="btn btn-outline-secondary btn-sm" onclick="switchToVisualMode()"><i class="bi bi-grid-3x3-gap"></i> 可视化模式</button>
+            </div>
+            <textarea id="sqlEditor" class="sql-editor" placeholder="SELECT * FROM table_name WHERE condition LIMIT 100"></textarea>
+            <div class="d-flex gap-2 mt-2">
+                <select id="sqlDbSelect" class="form-select form-select-sm" style="width:200px;">
+                    <option value="">选择数据库...</option>
+                    {% for db in db_connections %}
+                    <option value="{{ db.pk }}">{{ db.name }}</option>
+                    {% endfor %}
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="executeSqlQuery()"><i class="bi bi-play-fill"></i> 执行</button>
+            </div>
+        </div>
+
+        <div class="panel-bottom mt-2">
+            <div class="result-bar">
+                <span id="resultInfo" class="text-muted" style="font-size:0.85rem;">查询结果将在此显示</span>
+                <button id="exportBtn" class="btn btn-outline-success btn-sm" style="display:none;" onclick="exportCSV()"><i class="bi bi-download"></i> 导出CSV</button>
+            </div>
+            <div class="table-responsive" id="resultContainer" style="max-height: 200px; overflow: auto;">
+                <table class="table table-sm table-bordered table-hover result-table" id="resultTable">
+                    <thead id="resultHead"></thead>
+                    <tbody id="resultBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 保存模态框 -->
+<div class="modal fade" id="saveModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">保存查询</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <div class="mb-3"><label class="form-label">模板名称</label><input type="text" id="saveName" class="form-control" placeholder="例如：月度放款汇总"></div>
+                <div class="mb-3"><label class="form-label">描述</label><input type="text" id="saveDesc" class="form-control" placeholder="可选"></div>
+                <div class="mb-3"><label class="form-label">分类</label><input type="text" id="saveCategory" class="form-control" placeholder="可选，如：风控、财务"></div>
+                <div class="form-check mb-3"><input type="checkbox" id="saveToScript" class="form-check-input"><label class="form-check-label">同时保存为SQL脚本（可用于定时调度）</label></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <span id="updateTemplateBtn" style="display:none;"><button class="btn btn-warning" onclick="updateTemplate()">更新已有模板</button></span>
+                <button class="btn btn-primary" onclick="saveTemplate()">另存为新模板</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var CSRF_TOKEN = '{{ csrf_token }}';
+var canvasTables = {};   // {tableName: {alias, dbName, x, y, columns:[], selected:[]}}
+var canvasConnections = []; // [{from:'alias.col', to:'alias.col'}]
+var connectingFrom = null;
+var lastResult = null;
+var conditions = [];     // [{field:'alias.col', op:'=', value:'xxx', logic:'AND'}]
+var sorts = [];          // [{field:'alias.col', dir:'ASC'}]
+var fieldAliases = {};   // {'alias.col': '自定义名'}
+var selectedDbName = ''; // 当前选择的数据库默认库名
+var currentTemplateId = null;   // 当前加载的模板ID（用于更新保存）
+var currentTemplateName = '';   // 当前加载的模板名称
+
+// === 加载表列表 ===
+document.getElementById('dbSelect').addEventListener('change', function() {
+    var dbId = this.value;
+    if (!dbId) return;
+    document.getElementById('sqlDbSelect').value = dbId;
+    fetch('/data-extract/api/tables/?db_id=' + dbId)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { alert(data.error); return; }
+            selectedDbName = data.db_name || '';
+            var html = '';
+            data.tables.forEach(function(t) {
+                html += '<div class="table-item" draggable="true" data-table="' + t.name + '" data-db="' + (t.db_name||'') + '" data-comment="' + (t.comment||'') + '">'
+                    + '<i class="bi bi-table"></i> <strong>' + t.name + '</strong>'
+                    + (t.comment ? '<span class="table-comment">' + t.comment + '</span>' : '')
+                    + '</div>';
+            });
+            document.getElementById('tableList').innerHTML = html || '<p class="text-muted text-center py-3">无表</p>';
+            document.getElementById('tableSearch').style.display = '';
+            bindDragEvents();
+        })
+        .catch(e => alert('加载表失败: ' + e));
+});
+
+document.getElementById('tableSearch').addEventListener('input', function() {
+    var kw = this.value.toLowerCase();
+    document.querySelectorAll('.table-item').forEach(function(el) {
+        var name = (el.dataset.table || '').toLowerCase();
+        var comment = (el.dataset.comment || '').toLowerCase();
+        el.style.display = (name.indexOf(kw) >= 0 || comment.indexOf(kw) >= 0) ? '' : 'none';
+    });
+});
+
+function bindDragEvents() {
+    document.querySelectorAll('.table-item[draggable]').forEach(function(el) {
+        el.addEventListener('dragstart', function(e) {
+            e.dataTransfer.setData('application/json', JSON.stringify({table: el.dataset.table, db: el.dataset.db || ''}));
+        });
+    });
+}
+
+var canvas = document.getElementById('canvas');
+canvas.addEventListener('dragover', function(e) { e.preventDefault(); canvas.classList.add('dragover'); });
+canvas.addEventListener('dragleave', function() { canvas.classList.remove('dragover'); });
+canvas.addEventListener('drop', function(e) {
+    e.preventDefault();
+    canvas.classList.remove('dragover');
+    var dragData;
+    try { dragData = JSON.parse(e.dataTransfer.getData('application/json')); } catch(ex) { return; }
+    var tableName = dragData.table;
+    var tableDb = dragData.db;
+    if (!tableName || canvasTables[tableName]) return;
+    var dbId = document.getElementById('dbSelect').value;
+    fetch('/data-extract/api/columns/?db_id=' + dbId + '&table=' + encodeURIComponent(tableName))
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { alert(data.error); return; }
+            var rect = canvas.getBoundingClientRect();
+            var x = e.clientX - rect.left + canvas.scrollLeft - 100;
+            var y = e.clientY - rect.top + canvas.scrollTop - 20;
+            addTableToCanvas(tableName, data.columns, x, y, tableDb);
+        });
+});
+
+// === 自动分配别名 ===
+var aliasCounter = 0;
+function autoAlias() {
+    var letters = 'abcdefghijklmnopqrstuvwxyz';
+    if (aliasCounter < 26) return letters[aliasCounter++];
+    return 't' + (aliasCounter++ - 25);
+}
+
+function addTableToCanvas(name, columns, x, y, dbName) {
+    canvasTables[name] = { alias: autoAlias(), dbName: dbName || selectedDbName, x: x, y: y, columns: columns, selected: [] };
+    renderCanvas();
+}
+
+function renderCanvas() {
+    document.getElementById('canvasEmpty').style.display = Object.keys(canvasTables).length ? 'none' : '';
+    canvas.querySelectorAll('.canvas-table').forEach(el => el.remove());
+
+    Object.keys(canvasTables).forEach(function(tName) {
+        var t = canvasTables[tName];
+        var div = document.createElement('div');
+        div.className = 'canvas-table';
+        div.style.left = t.x + 'px';
+        div.style.top = t.y + 'px';
+
+        var header = '<div class="ct-header" data-table="' + tName + '">'
+            + '<div class="d-flex align-items-center gap-2">'
+            + '<span><i class="bi bi-table"></i> ' + tName + '</span>'
+            + '<input class="ct-alias" value="' + t.alias + '" placeholder="别名" onchange="canvasTables[\'' + tName + '\'].alias=this.value" title="表别名">'
+            + '</div>'
+            + '<span class="ct-close" onclick="removeTable(\'' + tName + '\')">&times;</span></div>';
+
+        var fields = '<div class="ct-fields">';
+        t.columns.forEach(function(col) {
+            var isSelected = t.selected.indexOf(col.name) >= 0;
+            var connClass = isFieldConnected(tName, col.name) ? ' connected' : '';
+            if (connectingFrom && connectingFrom.table === tName && connectingFrom.col === col.name) connClass = ' connecting';
+            fields += '<div class="ct-field' + (isSelected ? ' selected' : '') + connClass + '" onclick="handleFieldClick(\'' + tName + '\',\'' + col.name + '\', event)" oncontextmenu="startConnect(\'' + tName + '\',\'' + col.name + '\', event)">';
+            fields += '<input type="checkbox"' + (isSelected ? ' checked' : '') + ' style="pointer-events:none;">';
+            fields += ' ' + col.name;
+            if (col.is_key) fields += ' <span class="ct-key">🔑</span>';
+            if (col.comment) fields += ' <span style="color:#94a3b8;font-size:0.7rem;">' + col.comment + '</span>';
+            fields += '</div>';
+        });
+        fields += '</div>';
+        div.innerHTML = header + fields;
+
+        var hdr = div.querySelector('.ct-header');
+        hdr.addEventListener('mousedown', function(e) {
+            if (e.target.classList.contains('ct-close') || e.target.tagName === 'INPUT') return;
+            var startX = e.clientX - div.offsetLeft;
+            var startY = e.clientY - div.offsetTop;
+            function onMove(ev) {
+                div.style.left = (ev.clientX - startX) + 'px';
+                div.style.top = (ev.clientY - startY) + 'px';
+                canvasTables[tName].x = ev.clientX - startX;
+                canvasTables[tName].y = ev.clientY - startY;
+            }
+            function onUp() {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            }
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+        canvas.appendChild(div);
+    });
+    updateSelectedFields();
+}
+
+function removeTable(name) {
+    var alias = canvasTables[name] ? canvasTables[name].alias : null;
+    delete canvasTables[name];
+    if (alias) {
+        canvasConnections = canvasConnections.filter(c => {
+            var fromA = c.from.split('.')[0];
+            var toA = c.to.split('.')[0];
+            return fromA !== alias && toA !== alias;
+        });
+    }
+    renderCanvas();
+}
+
+function toggleField(tableName, fieldName) {
+    var t = canvasTables[tableName];
+    var idx = t.selected.indexOf(fieldName);
+    if (idx >= 0) t.selected.splice(idx, 1);
+    else t.selected.push(fieldName);
+    renderCanvas();
+}
+
+function handleFieldClick(tableName, fieldName, event) {
+    if (event) event.stopPropagation();
+    if (connectingFrom) {
+        var fromAlias = canvasTables[connectingFrom.table].alias;
+        var toAlias = canvasTables[tableName].alias;
+        var fromKey = fromAlias + '.' + connectingFrom.col;
+        var toKey = toAlias + '.' + fieldName;
+        var exists = canvasConnections.some(c =>
+            (c.from === fromKey && c.to === toKey) || (c.from === toKey && c.to === fromKey)
+        );
+        if (!exists && connectingFrom.table !== tableName) {
+            canvasConnections.push({from: fromKey, to: toKey});
+        }
+        connectingFrom = null;
+        renderCanvas();
+    } else {
+        toggleField(tableName, fieldName);
+    }
+}
+
+function startConnect(tableName, fieldName, event) {
+    if (event) { event.stopPropagation(); event.preventDefault(); }
+    connectingFrom = {table: tableName, col: fieldName};
+    renderCanvas();
+}
+
+function isFieldConnected(tableName, fieldName) {
+    var alias = canvasTables[tableName].alias;
+    var key = alias + '.' + fieldName;
+    return canvasConnections.some(c => c.from === key || c.to === key);
+}
+
+function removeConnection(idx) {
+    canvasConnections.splice(idx, 1);
+    renderCanvas();
+}
+
+function clearCanvas() {
+    canvasTables = {};
+    canvasConnections = [];
+    connectingFrom = null;
+    conditions = [];
+    sorts = [];
+    fieldAliases = {};
+    aliasCounter = 0;
+    renderCanvas();
+    document.getElementById('condContainer').innerHTML = '';
+    document.getElementById('sortContainer').innerHTML = '';
+}
+
+// === 已选字段显示（双击编辑别名）===
+function updateSelectedFields() {
+    var container = document.getElementById('selectedFields');
+    var html = '';
+    Object.keys(canvasTables).forEach(function(tName) {
+        var alias = canvasTables[tName].alias;
+        canvasTables[tName].selected.forEach(function(f) {
+            var key = alias + '.' + f;
+            var displayAlias = fieldAliases[key];
+            html += '<span class="qb-tag">' + key;
+            if (displayAlias) html += ' AS ' + displayAlias;
+            html += ' <input class="field-alias-input" placeholder="别名" value="' + (displayAlias || '') + '" onchange="setFieldAlias(\'' + key + '\', this.value)" title="字段别名">';
+            html += ' <span class="qb-remove" onclick="toggleField(\'' + tName + '\',\'' + f + '\')">&times;</span></span>';
+        });
+    });
+    container.innerHTML = html || '<span class="text-muted" style="font-size:0.8rem;">点击画布中的字段添加</span>';
+    updateConnList();
+    updateCondFieldOptions();
+}
+
+function setFieldAlias(key, alias) {
+    if (alias.trim()) fieldAliases[key] = alias.trim();
+    else delete fieldAliases[key];
+    updateSelectedFields();
+}
+
+function updateConnList() {
+    var container = document.getElementById('connList');
+    if (!canvasConnections.length) {
+        container.innerHTML = '<span class="text-muted" style="font-size:0.8rem;">右键字段开始连接，左键另一表字段完成</span>';
+        return;
+    }
+    var html = '';
+    canvasConnections.forEach(function(conn, idx) {
+        html += '<span class="qb-tag conn-tag"><i class="bi bi-link-45deg"></i> ' + conn.from + ' = ' + conn.to;
+        html += ' <span class="qb-remove" onclick="removeConnection(' + idx + ')">&times;</span></span>';
+    });
+    container.innerHTML = html;
+}
+
+// === 条件构建器 ===
+function getAllFields() {
+    var fields = [];
+    Object.keys(canvasTables).forEach(function(tName) {
+        var alias = canvasTables[tName].alias;
+        canvasTables[tName].columns.forEach(function(col) {
+            fields.push(alias + '.' + col.name);
+        });
+    });
+    return fields;
+}
+
+function updateCondFieldOptions() {
+    var allFields = getAllFields();
+    document.querySelectorAll('.cond-field-select').forEach(function(sel) {
+        var current = sel.value;
+        var html = '<option value="">选择字段</option>';
+        allFields.forEach(function(f) { html += '<option value="' + f + '"' + (f === current ? ' selected' : '') + '>' + f + '</option>'; });
+        sel.innerHTML = html;
+    });
+    document.querySelectorAll('.sort-field-select').forEach(function(sel) {
+        var current = sel.value;
+        var html = '<option value="">选择字段</option>';
+        allFields.forEach(function(f) { html += '<option value="' + f + '"' + (f === current ? ' selected' : '') + '>' + f + '</option>'; });
+        sel.innerHTML = html;
+    });
+}
+
+function addCondition() {
+    var allFields = getAllFields();
+    var opts = '<option value="">选择字段</option>';
+    allFields.forEach(function(f) { opts += '<option value="' + f + '">' + f + '</option>'; });
+    var ops = ['=', '!=', '>', '<', '>=', '<=', 'IN', 'NOT IN', 'LIKE', 'IS NULL', 'IS NOT NULL'];
+    var opOpts = '';
+    ops.forEach(function(o) { opOpts += '<option value="' + o + '">' + o + '</option>'; });
+    var html = '<div class="cond-row">'
+        + '<select class="form-select form-select-sm cond-field-select" style="width:150px;">' + opts + '</select>'
+        + '<select class="form-select form-select-sm cond-op-select" style="width:110px;">' + opOpts + '</select>'
+        + '<input type="text" class="form-control form-control-sm cond-value-input" placeholder="值" style="width:140px;">'
+        + '<select class="form-select form-select-sm cond-logic-select" style="width:70px;"><option value="AND">AND</option><option value="OR">OR</option></select>'
+        + '<button class="btn btn-outline-danger btn-sm" onclick="this.parentElement.remove();buildConditions();"><i class="bi bi-x"></i></button>'
+        + '</div>';
+    var div = document.createElement('div');
+    div.innerHTML = html;
+    document.getElementById('condContainer').appendChild(div.firstElementChild);
+}
+
+function addSort() {
+    var allFields = getAllFields();
+    var opts = '<option value="">选择字段</option>';
+    allFields.forEach(function(f) { opts += '<option value="' + f + '">' + f + '</option>'; });
+    var html = '<div class="sort-row">'
+        + '<select class="form-select form-select-sm sort-field-select" style="width:150px;">' + opts + '</select>'
+        + '<select class="form-select form-select-sm sort-dir-select" style="width:80px;"><option value="ASC">升序</option><option value="DESC">降序</option></select>'
+        + '<button class="btn btn-outline-danger btn-sm" onclick="this.parentElement.remove();"><i class="bi bi-x"></i></button>'
+        + '</div>';
+    var div = document.createElement('div');
+    div.innerHTML = html;
+    document.getElementById('sortContainer').appendChild(div.firstElementChild);
+}
+
+function buildConditions() {
+    conditions = [];
+    document.querySelectorAll('.cond-row').forEach(function(row) {
+        var field = row.querySelector('.cond-field-select').value;
+        var op = row.querySelector('.cond-op-select').value;
+        var value = row.querySelector('.cond-value-input').value.trim();
+        var logic = row.querySelector('.cond-logic-select').value;
+        if (field && op) conditions.push({field: field, op: op, value: value, logic: logic});
+    });
+}
+
+function buildSorts() {
+    sorts = [];
+    document.querySelectorAll('.sort-row').forEach(function(row) {
+        var field = row.querySelector('.sort-field-select').value;
+        var dir = row.querySelector('.sort-dir-select').value;
+        if (field) sorts.push({field: field, dir: dir});
+    });
+}
+
+// === SQL生成 ===
+function generateSQL() {
+    var tables = Object.keys(canvasTables);
+    if (!tables.length) return '';
+
+    var fields = [];
+    Object.keys(canvasTables).forEach(function(tName) {
+        var alias = canvasTables[tName].alias;
+        canvasTables[tName].selected.forEach(function(f) {
+            var ref = alias + '.' + f;
+            var aliasStr = fieldAliases[ref] ? ' AS `' + fieldAliases[ref] + '`' : '';
+            fields.push(ref + aliasStr);
+        });
+    });
+    if (!fields.length) {
+        var firstAlias = canvasTables[tables[0]].alias;
+        fields.push(firstAlias + '.*');
+    }
+
+    // 构建表引用：如果表的数据库与当前连接默认库不同，则加 db. 前缀
+    function tableRef(tableName) {
+        var td = canvasTables[tableName];
+        var db = td.dbName || '';
+        if (db && db !== selectedDbName) {
+            return db + '.' + tableName;
+        }
+        return tableName;
+    }
+
+    var firstAlias = canvasTables[tables[0]].alias;
+    var sql = 'SELECT ' + fields.join(', ') + '\nFROM ' + tableRef(tables[0]) + ' AS ' + firstAlias;
+
+    // 建立 alias → tableName 映射
+    var aliasToTable = {};
+    Object.keys(canvasTables).forEach(function(tn) {
+        aliasToTable[canvasTables[tn].alias] = tn;
+    });
+
+    var joinedAliases = new Set([firstAlias]);
+    canvasConnections.forEach(function(conn) {
+        var fromAlias = conn.from.split('.')[0];
+        var fromCol = conn.from.split('.')[1];
+        var toAlias = conn.to.split('.')[0];
+        var toCol = conn.to.split('.')[1];
+
+        // 跳过同一张表的连接
+        if (fromAlias === toAlias) return;
+
+        // 确定哪边已加入、哪边待加入
+        var leftAlias, rightAlias, leftCol, rightCol;
+        if (joinedAliases.has(fromAlias) && !joinedAliases.has(toAlias)) {
+            leftAlias = fromAlias; leftCol = fromCol;
+            rightAlias = toAlias; rightCol = toCol;
+        } else if (joinedAliases.has(toAlias) && !joinedAliases.has(fromAlias)) {
+            leftAlias = toAlias; leftCol = toCol;
+            rightAlias = fromAlias; rightCol = fromCol;
+        } else {
+            return; // 两边都已加入或都未加入，跳过
+        }
+
+        var rightTable = aliasToTable[rightAlias];
+        if (rightTable) {
+            joinedAliases.add(rightAlias);
+            sql += '\nJOIN ' + tableRef(rightTable) + ' AS ' + rightAlias + ' ON ' + leftAlias + '.' + leftCol + ' = ' + rightAlias + '.' + rightCol;
+        }
+    });
+    tables.forEach(function(t) {
+        var a = canvasTables[t].alias;
+        if (!joinedAliases.has(a)) {
+            sql += '\nJOIN ' + tableRef(t) + ' AS ' + a + ' ON /* 请填写JOIN条件 */';
+        }
+    });
+
+    buildConditions();
+    buildSorts();
+
+    if (conditions.length) {
+        var condParts = conditions.map(function(c) {
+            var parts = c.field.split('.');
+            var fieldRef = c.field;
+            if (c.op === 'IS NULL' || c.op === 'IS NOT NULL') return fieldRef + ' ' + c.op;
+            if (c.op === 'IN' || c.op === 'NOT IN') return fieldRef + ' ' + c.op + ' (' + c.value + ')';
+            if (c.op === 'LIKE') return fieldRef + ' LIKE \'' + c.value + '\'';
+            return fieldRef + ' ' + c.op + ' \'' + c.value + '\'';
+        });
+        sql += '\nWHERE ' + condParts[0];
+        for (var i = 1; i < condParts.length; i++) {
+            sql += ' ' + conditions[i].logic + ' ' + condParts[i];
+        }
+    }
+
+    if (sorts.length) {
+        sql += '\nORDER BY ' + sorts.map(function(s) { return s.field + ' ' + s.dir; }).join(', ');
+    }
+
+    var limit = document.getElementById('limitInput').value;
+    if (limit) sql += '\nLIMIT ' + limit;
+    return sql;
+}
+
+function executeQuery() {
+    var sql = generateSQL();
+    if (!sql) { alert('请先添加表和字段'); return; }
+    if (sql.indexOf('/* 请填写JOIN条件 */') >= 0) {
+        if (!confirm('SQL中包含未填写的JOIN条件，是否仍要执行？')) return;
+        sql = sql.replace(/\/\* 请填写JOIN条件 \*\//g, '1=1');
+    }
+    var dbId = document.getElementById('dbSelect').value;
+    runQuery(dbId, sql);
+}
+
+function executeSqlQuery() {
+    var sql = document.getElementById('sqlEditor').value.trim();
+    var dbId = document.getElementById('sqlDbSelect').value;
+    if (!dbId) { alert('请选择数据库'); return; }
+    if (!sql) { alert('请输入SQL'); return; }
+    runQuery(dbId, sql);
+}
+
+function runQuery(dbId, sql) {
+    document.getElementById('resultInfo').innerHTML = '<span class="spinner-border spinner-border-sm"></span> 执行中...';
+    fetch('/data-extract/execute/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+        body: JSON.stringify({db_id: dbId, sql: sql})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            document.getElementById('resultInfo').innerHTML = '<span class="text-danger">❌ ' + data.error + '</span>';
+            return;
+        }
+        renderResults(data);
+    })
+    .catch(e => {
+        document.getElementById('resultInfo').innerHTML = '<span class="text-danger">请求失败: ' + e + '</span>';
+    });
+}
+
+function renderResults(data) {
+    lastResult = data;
+    if (data.results && data.results.length > 0 && data.results[0].columns) {
+        var r = data.results[0];
+        document.getElementById('resultInfo').innerHTML = '✅ ' + data.row_count + ' 行，耗时 ' + data.duration + ' 秒';
+        document.getElementById('resultHead').innerHTML = '<tr>' + r.columns.map(c => '<th>' + c + '</th>').join('') + '</tr>';
+        var body = '';
+        r.rows.forEach(function(row) {
+            body += '<tr>' + row.map(v => '<td title="' + (v||'') + '">' + (v !== null ? v : '<i class="text-muted">NULL</i>') + '</td>').join('') + '</tr>';
+        });
+        document.getElementById('resultBody').innerHTML = body;
+        document.getElementById('exportBtn').style.display = '';
+    } else {
+        document.getElementById('resultHead').innerHTML = '';
+        document.getElementById('resultBody').innerHTML = '<tr><td class="text-muted text-center">无结果</td></tr>';
+    }
+}
+
+// === 模式切换 ===
+function switchToSqlMode() {
+    document.getElementById('sqlModePanel').style.display = '';
+    document.querySelector('.canvas-area').style.display = 'none';
+    document.querySelector('.query-bar').style.display = 'none';
+    document.getElementById('sqlEditor').value = generateSQL();
+    var dbId = document.getElementById('dbSelect').value;
+    if (dbId) document.getElementById('sqlDbSelect').value = dbId;
+}
+
+function switchToVisualMode() {
+    document.getElementById('sqlModePanel').style.display = 'none';
+    document.querySelector('.canvas-area').style.display = '';
+    document.querySelector('.query-bar').style.display = '';
+    // 如果画布为空，尝试从SQL编辑器中的SQL解析回可视化
+    if (Object.keys(canvasTables).length === 0) {
+        var sql = document.getElementById('sqlEditor').value.trim();
+        if (sql) {
+            var dbId = document.getElementById('sqlDbSelect').value || document.getElementById('dbSelect').value;
+            tryParseSQLToVisual(sql, dbId);
+        }
+    }
+}
+
+// === 获取当前可视化状态快照 ===
+function getVisualState() {
+    buildConditions();
+    buildSorts();
+    return JSON.stringify({
+        canvasTables: canvasTables,
+        canvasConnections: canvasConnections,
+        conditions: conditions,
+        sorts: sorts,
+        fieldAliases: fieldAliases,
+        aliasCounter: aliasCounter,
+        limit: document.getElementById('limitInput').value
+    });
+}
+
+// === 保存/加载模板 ===
+function saveTemplate() {
+    var name = document.getElementById('saveName').value.trim();
+    if (!name) { alert('请输入模板名称'); return; }
+    // 如果当前在SQL模式，先用SQL生成一个可执行的SQL；否则用generateSQL
+    var sql;
+    var isSqlMode = document.getElementById('sqlModePanel').style.display !== 'none';
+    if (isSqlMode) {
+        sql = document.getElementById('sqlEditor').value.trim();
+    } else {
+        sql = generateSQL();
+    }
+    if (!sql) { alert('请先构建查询'); return; }
+    var dbId = document.getElementById('dbSelect').value || document.getElementById('sqlDbSelect').value;
+    var toScript = document.getElementById('saveToScript').checked;
+
+    // 只在可视化模式下保存visual_json
+    var visualJson = '';
+    if (!isSqlMode && Object.keys(canvasTables).length > 0) {
+        visualJson = getVisualState();
+    }
+
+    fetch('/data-extract/save/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+        body: JSON.stringify({
+            name: name,
+            description: document.getElementById('saveDesc').value.trim(),
+            category: document.getElementById('saveCategory').value.trim(),
+            db_id: dbId,
+            sql: sql,
+            visual_json: visualJson,
+            save_to_script: toScript
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) { alert(data.error); return; }
+        alert('保存成功' + (data.script_created ? '（已创建SQL脚本）' : ''));
+        bootstrap.Modal.getInstance(document.getElementById('saveModal')).hide();
+    })
+    .catch(e => alert('保存失败: ' + e));
+}
+
+// === 打开保存模态框 ===
+function openSaveModal() {
+    // 如果已加载模板，自动填充表单
+    if (currentTemplateId && currentTemplateName) {
+        document.getElementById('saveName').value = currentTemplateName;
+        document.getElementById('updateTemplateBtn').style.display = '';
+    } else {
+        document.getElementById('saveName').value = '';
+        document.getElementById('updateTemplateBtn').style.display = 'none';
+    }
+    new bootstrap.Modal(document.getElementById('saveModal')).show();
+}
+
+// === 更新已有模板 ===
+function updateTemplate() {
+    if (!currentTemplateId) { alert('没有加载的模板'); return; }
+    var sql;
+    var isSqlMode = document.getElementById('sqlModePanel').style.display !== 'none';
+    if (isSqlMode) {
+        sql = document.getElementById('sqlEditor').value.trim();
+    } else {
+        sql = generateSQL();
+    }
+    if (!sql) { alert('请先构建查询'); return; }
+
+    var visualJson = '';
+    if (!isSqlMode && Object.keys(canvasTables).length > 0) {
+        visualJson = getVisualState();
+    }
+
+    fetch('/data-extract/update/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+        body: JSON.stringify({
+            template_id: currentTemplateId,
+            sql: sql,
+            visual_json: visualJson
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) { alert(data.error); return; }
+        alert('模板已更新');
+        bootstrap.Modal.getInstance(document.getElementById('saveModal')).hide();
+    })
+    .catch(e => alert('更新失败: ' + e));
+}
+
+function loadTemplate(pk) {
+    fetch('/data-extract/templates/' + pk + '/api/')
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { alert(data.error); return; }
+            // 记录当前模板信息
+            currentTemplateId = pk;
+            currentTemplateName = data.name || '';
+            // 自动填充保存模态框
+            document.getElementById('saveName').value = data.name || '';
+            document.getElementById('saveDesc').value = data.description || '';
+            document.getElementById('saveCategory').value = data.category || '';
+            if (data.db_connection_id) {
+                document.getElementById('sqlDbSelect').value = data.db_connection_id;
+                document.getElementById('dbSelect').value = data.db_connection_id;
+            }
+            // 优先使用visual_json恢复可视化状态
+            if (data.visual_json) {
+                try {
+                    var vs = JSON.parse(data.visual_json);
+                    restoreVisualState(vs, data.db_connection_id);
+                    return;
+                } catch(e) {
+                    console.warn('visual_json解析失败，回退到SQL模式', e);
+                }
+            }
+            // 无visual_json，尝试从SQL解析到可视化
+            if (data.sql_template) {
+                tryParseSQLToVisual(data.sql_template, data.db_connection_id);
+            }
+        })
+        .catch(e => alert('加载失败: ' + e));
+}
+
+// === 恢复可视化状态 ===
+function restoreVisualState(vs, dbId) {
+    clearCanvas();
+    if (vs.limit) document.getElementById('limitInput').value = vs.limit;
+    if (vs.conditions) conditions = vs.conditions;
+    if (vs.sorts) sorts = vs.sorts;
+    if (vs.fieldAliases) fieldAliases = vs.fieldAliases;
+    if (vs.aliasCounter) aliasCounter = vs.aliasCounter;
+
+    // 需要先加载所有涉及的表的字段信息
+    var tablesToLoad = vs.canvasTables ? Object.keys(vs.canvasTables) : [];
+    if (!tablesToLoad.length) return;
+
+    var db_id = dbId || document.getElementById('dbSelect').value;
+    if (!db_id) { alert('请先选择数据库连接'); return; }
+
+    document.getElementById('dbSelect').value = db_id;
+    document.getElementById('sqlDbSelect').value = db_id;
+
+    // 批量加载表结构
+    var loaded = 0;
+    var total = tablesToLoad.length;
+    tablesToLoad.forEach(function(tName) {
+        var savedTable = vs.canvasTables[tName];
+        fetch('/data-extract/api/columns/?db_id=' + db_id + '&table=' + encodeURIComponent(tName))
+            .then(r => r.json())
+            .then(data => {
+                loaded++;
+                if (data.error) {
+                    console.warn('加载表' + tName + '失败: ' + data.error);
+                } else {
+                    canvasTables[tName] = {
+                        alias: savedTable.alias,
+                        dbName: savedTable.dbName || '',
+                        x: savedTable.x || 100,
+                        y: savedTable.y || 100,
+                        columns: data.columns,
+                        selected: savedTable.selected || []
+                    };
+                }
+                if (loaded >= total) {
+                    // 所有表加载完成，恢复连接和渲染
+                    if (vs.canvasConnections) canvasConnections = vs.canvasConnections;
+                    renderCanvas();
+                    // 恢复条件和排序UI
+                    rebuildConditionUI();
+                    rebuildSortUI();
+                    // 切换到可视化模式
+                    switchToVisualMode();
+                }
+            })
+            .catch(function() {
+                loaded++;
+                if (loaded >= total) {
+                    if (vs.canvasConnections) canvasConnections = vs.canvasConnections;
+                    renderCanvas();
+                    rebuildConditionUI();
+                    rebuildSortUI();
+                    switchToVisualMode();
+                }
+            });
+    });
+}
+
+// === 尝试从SQL解析到可视化 ===
+function tryParseSQLToVisual(sql, dbId) {
+    var db_id = dbId || document.getElementById('dbSelect').value || document.getElementById('sqlDbSelect').value;
+    if (!db_id) {
+        // 无数据库连接，只能用SQL模式
+        switchToSqlModeWithSQL(sql);
+        return;
+    }
+    document.getElementById('dbSelect').value = db_id;
+    document.getElementById('sqlDbSelect').value = db_id;
+
+    var parsed = parseSimpleSQL(sql);
+    if (!parsed || !parsed.tables.length) {
+        switchToSqlModeWithSQL(sql);
+        return;
+    }
+
+    // 加载所有涉及表的字段
+    clearCanvas();
+    var loaded = 0;
+    var total = parsed.tables.length;
+    parsed.tables.forEach(function(t, idx) {
+        var tableName = t.name;
+        var tableAlias = t.alias;
+        fetch('/data-extract/api/columns/?db_id=' + db_id + '&table=' + encodeURIComponent(tableName))
+            .then(r => r.json())
+            .then(data => {
+                loaded++;
+                if (!data.error) {
+                    canvasTables[tableName] = {
+                        alias: tableAlias,
+                        dbName: '',
+                        x: 80 + (idx % 3) * 260,
+                        y: 60 + Math.floor(idx / 3) * 220,
+                        columns: data.columns,
+                        selected: []
+                    };
+                }
+                if (loaded >= total) {
+                    applyParsedSQLToCanvas(parsed);
+                    switchToVisualMode();
+                }
+            })
+            .catch(function() {
+                loaded++;
+                if (loaded >= total) {
+                    applyParsedSQLToCanvas(parsed);
+                    switchToVisualMode();
+                }
+            });
+    });
+}
+
+// === 简单SQL解析器 ===
+function parseSimpleSQL(sql) {
+    var result = { tables: [], fields: [], connections: [], conditions: [], sorts: [], limit: null };
+
+    // 去掉多余空白和换行
+    sql = sql.replace(/\s+/g, ' ').trim();
+
+    // 解析 FROM ... JOIN 部分提取表和别名
+    var fromMatch = sql.match(/FROM\s+(.+?)(?:\s+WHERE|\s+ORDER|\s+GROUP|\s+LIMIT|\s*$)/i);
+    if (!fromMatch) return null;
+    var fromPart = fromMatch[1];
+
+    // 提取主表
+    var mainTableMatch = fromPart.match(/^(\S+)(?:\s+(?:AS\s+)?(\w+))?/i);
+    if (mainTableMatch) {
+        var mainName = mainTableMatch[1].replace(/[`"]/g, '');
+        var mainAlias = mainTableMatch[2] || mainName;
+        result.tables.push({ name: mainName, alias: mainAlias });
+    }
+
+    // 提取 JOIN 表
+    var joinRegex = /JOIN\s+(\S+)(?:\s+(?:AS\s+)?(\w+))?\s+ON\s+(.+?)(?=\s+JOIN|\s+WHERE|\s+ORDER|\s+GROUP|\s+LIMIT|\s*$)/gi;
+    var joinMatch;
+    while ((joinMatch = joinRegex.exec(fromPart)) !== null) {
+        var jName = joinMatch[1].replace(/[`"]/g, '');
+        var jAlias = joinMatch[2] || jName;
+        result.tables.push({ name: jName, alias: jAlias });
+        // 解析 ON 条件作为连接
+        var onClause = joinMatch[3].trim();
+        var onParts = onClause.split(/\s+AND\s+/i);
+        onParts.forEach(function(part) {
+            var m = part.match(/(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)/);
+            if (m) {
+                result.connections.push({ from: m[1] + '.' + m[2], to: m[3] + '.' + m[4] });
+            }
+        });
+    }
+
+    // 解析 SELECT 字段
+    var selectMatch = sql.match(/SELECT\s+(.+?)\s+FROM\s/i);
+    if (selectMatch) {
+        var fieldStr = selectMatch[1];
+        var fieldParts = splitTopLevel(fieldStr, ',');
+        fieldParts.forEach(function(fp) {
+            fp = fp.trim();
+            // 解析 alias.field AS alias_name
+            var asMatch = fp.match(/(.+?)\s+AS\s+[`"]?([^`"' ]+)[`"]?$/i);
+            var fieldRef = asMatch ? asMatch[1].trim() : fp;
+            var displayAlias = asMatch ? asMatch[2] : '';
+            var dotMatch = fieldRef.match(/^(\w+)\.(\w+)$/);
+            if (dotMatch) {
+                result.fields.push({ tableAlias: dotMatch[1], column: dotMatch[2], displayAlias: displayAlias });
+            } else if (fieldRef === '*' || fieldRef.match(/^\w+\.\*$/)) {
+                // skip wildcard
+            }
+        });
+    }
+
+    // 解析 WHERE
+    var whereMatch = sql.match(/WHERE\s+(.+?)(?:\s+ORDER|\s+GROUP|\s+LIMIT|\s*$)/i);
+    if (whereMatch) {
+        var whereStr = whereMatch[1].trim();
+        // 简单拆分 AND/OR
+        var condParts = whereStr.split(/\s+(AND|OR)\s+/i);
+        var currentLogic = 'AND';
+        condParts.forEach(function(cp) {
+            cp = cp.trim();
+            if (cp.toUpperCase() === 'AND' || cp.toUpperCase() === 'OR') {
+                currentLogic = cp.toUpperCase();
+                return;
+            }
+            // 解析 field op value
+            var cm = cp.match(/(\w+\.\w+)\s*(=|!=|>|<|>=|<=|IN|NOT IN|LIKE|IS NULL|IS NOT NULL)\s*(.*)?/i);
+            if (cm) {
+                var val = (cm[3] || '').trim().replace(/^['"]|['"]$/g, '');
+                result.conditions.push({ field: cm[1], op: cm[2].toUpperCase(), value: val, logic: currentLogic });
+            }
+        });
+    }
+
+    // 解析 ORDER BY
+    var orderMatch = sql.match(/ORDER\s+BY\s+(.+?)(?:\s+LIMIT|\s*$)/i);
+    if (orderMatch) {
+        var orderParts = orderMatch[1].split(',');
+        orderParts.forEach(function(op) {
+            var om = op.trim().match(/(\w+\.\w+)\s*(ASC|DESC)?/i);
+            if (om) {
+                result.sorts.push({ field: om[1], dir: (om[2] || 'ASC').toUpperCase() });
+            }
+        });
+    }
+
+    // 解析 LIMIT
+    var limitMatch = sql.match(/LIMIT\s+(\d+)/i);
+    if (limitMatch) {
+        result.limit = limitMatch[1];
+    }
+
+    return result;
+}
+
+// 顶层逗号分割（不拆分括号内的逗号）
+function splitTopLevel(str, sep) {
+    var parts = [];
+    var depth = 0;
+    var current = '';
+    for (var i = 0; i < str.length; i++) {
+        if (str[i] === '(') depth++;
+        else if (str[i] === ')') depth--;
+        if (str[i] === sep && depth === 0) {
+            parts.push(current);
+            current = '';
+        } else {
+            current += str[i];
+        }
+    }
+    if (current) parts.push(current);
+    return parts;
+}
+
+// 将解析结果应用到画布
+function applyParsedSQLToCanvas(parsed) {
+    // 恢复连接
+    canvasConnections = parsed.connections || [];
+
+    // 恢复字段选择
+    parsed.fields.forEach(function(f) {
+        Object.keys(canvasTables).forEach(function(tName) {
+            if (canvasTables[tName].alias === f.tableAlias) {
+                if (canvasTables[tName].selected.indexOf(f.column) < 0) {
+                    canvasTables[tName].selected.push(f.column);
+                }
+                if (f.displayAlias) {
+                    fieldAliases[f.tableAlias + '.' + f.column] = f.displayAlias;
+                }
+            }
+        });
+    });
+
+    // 恢复条件
+    conditions = parsed.conditions || [];
+
+    // 恢复排序
+    sorts = parsed.sorts || [];
+
+    // 恢复LIMIT
+    if (parsed.limit) document.getElementById('limitInput').value = parsed.limit;
+
+    renderCanvas();
+    rebuildConditionUI();
+    rebuildSortUI();
+}
+
+// === 重建条件UI ===
+function rebuildConditionUI() {
+    document.getElementById('condContainer').innerHTML = '';
+    conditions.forEach(function(c) {
+        addCondition();
+        var rows = document.querySelectorAll('.cond-row');
+        var row = rows[rows.length - 1];
+        row.querySelector('.cond-field-select').value = c.field;
+        row.querySelector('.cond-op-select').value = c.op;
+        row.querySelector('.cond-value-input').value = c.value || '';
+        row.querySelector('.cond-logic-select').value = c.logic || 'AND';
+    });
+}
+
+// === 重建排序UI ===
+function rebuildSortUI() {
+    document.getElementById('sortContainer').innerHTML = '';
+    sorts.forEach(function(s) {
+        addSort();
+        var rows = document.querySelectorAll('.sort-row');
+        var row = rows[rows.length - 1];
+        row.querySelector('.sort-field-select').value = s.field;
+        row.querySelector('.sort-dir-select').value = s.dir;
+    });
+}
+
+function switchToSqlModeWithSQL(sql) {
+    document.getElementById('sqlModePanel').style.display = '';
+    document.querySelector('.canvas-area').style.display = 'none';
+    document.querySelector('.query-bar').style.display = 'none';
+    document.getElementById('sqlEditor').value = sql;
+}
+
+// === 导出 ===
+function exportCSV() {
+    if (!lastResult || !lastResult.results || !lastResult.results[0].columns) return;
+    var r = lastResult.results[0];
+    var csv = '\uFEFF' + r.columns.join(',') + '\n';
+    r.rows.forEach(function(row) {
+        csv += row.map(v => '"' + (v !== null ? String(v).replace(/"/g, '""') : '') + '"').join(',') + '\n';
+    });
+    var blob = new Blob([csv], {type: 'text/csv;charset=utf-8'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'query_result.csv';
+    a.click();
+}
+</script>
+{% endblock %}

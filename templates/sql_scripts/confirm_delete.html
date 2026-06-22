@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}删除脚本 - BI 工具箱{% endblock %}
+{% block nav_scripts %}active{% endblock %}
+
+{% block content %}
+<div class="card p-4" style="max-width:500px; margin:60px auto;">
+    <h5 class="text-danger"><i class="bi bi-exclamation-triangle"></i> 确认删除</h5>
+    <p>确定要删除脚本 <strong>"{{ script.name }}"</strong> 吗？此操作不可撤销。</p>
+    <form method="post">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">确认删除</button>
+        <a href="{% url 'scripts:detail' script.pk %}" class="btn btn-outline-secondary">取消</a>
+    </form>
+</div>
+{% endblock %}

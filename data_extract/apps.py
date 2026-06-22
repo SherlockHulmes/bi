@@ -1,0 +1,7 @@
+from django.apps import AppConfig
+
+
+class DataExtractConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'data_extract'
+    verbose_name = '自助取数'

@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}执行日志 - BI 工具箱{% endblock %}
+{% block nav_logs %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h4><i class="bi bi-journal-text"></i> 执行日志</h4>
+</div>
+
+<div class="card">
+    <table class="table table-hover mb-0">
+        <thead>
+            <tr>
+                <th>任务名</th>
+                <th>脚本</th>
+                <th>触发方式</th>
+                <th>状态</th>
+                <th>耗时(秒)</th>
+                <th>影响行数</th>
+                <th>通知</th>
+                <th>执行人</th>
+                <th>执行时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in task_logs %}
+            <tr>
+                <td>{{ log.task_name }}</td>
+                <td>{{ log.script_name }}</td>
+                <td>
+                    {% if log.trigger_type == 'manual' %}<span class="badge bg-info">手动执行</span>
+                    {% elif log.trigger_type == 'send_file' %}<span class="badge bg-primary">发送文件</span>
+                    {% elif log.trigger_type == 'data_query' %}<span class="badge bg-warning">数据查询</span>
+                    {% elif log.trigger_type == 'quality_check' %}<span class="badge bg-danger">质量检查</span>
+                    {% else %}<span class="badge bg-secondary">定时执行</span>{% endif %}
+                </td>
+                <td>
+                    {% if log.status == 'success' %}<span class="badge bg-success">成功</span>
+                    {% else %}<span class="badge bg-danger">失败</span>{% endif %}
+                </td>
+                <td>{{ log.duration|default:"-" }}</td>
+                <td>{{ log.row_count|default:"-" }}</td>
+                <td>
+                    {% if log.notify_channel %}
+                        {% if log.notify_channel == 'email' %}<i class="bi bi-envelope"></i> 邮件
+                        {% elif log.notify_channel == 'dingtalk' %}<i class="bi bi-chat-dots"></i> 钉钉
+                        {% elif log.notify_channel == 'wecom' %}<i class="bi bi-chat"></i> 企微{% endif %}
+                        → {{ log.notify_target|truncatechars:20 }}
+                        {% if log.notify_status == True %} <span class="badge bg-success">✓</span>
+                        {% elif log.notify_status == False %} <span class="badge bg-danger">✗</span>
+                        {% endif %}
+                    {% else %}<span class="text-muted">-</span>{% endif %}
+                </td>
+                <td>{{ log.executed_by|default:"系统" }}</td>
+                <td>{{ log.executed_at|date:"Y-m-d H:i:s" }}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" onclick="showLogDetail({{ log.pk }})" title="查看详情">
+                        <i class="bi bi-eye"></i>
+                    </button>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="10" class="text-center text-muted py-4">暂无执行记录</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- 详情弹窗 -->
+<div class="modal fade" id="logDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="logDetailTitle">执行详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="logDetailBody">
+                <div class="text-center"><div class="spinner-border spinner-border-sm"></div> 加载中...</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var CSRF_TOKEN = '{{ csrf_token }}';
+function showLogDetail(pk) {
+    var modal = new bootstrap.Modal(document.getElementById('logDetailModal'));
+    document.getElementById('logDetailBody').innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm"></div> 加载中...</div>';
+    modal.show();
+
+    fetch('/scheduler/logs/' + pk + '/detail/')
+        .then(r => r.json())
+        .then(d => {
+            var html = '<table class="table table-bordered"><tbody>';
+            html += '<tr><th style="width:120px;">任务名</th><td>' + d.task_name + '</td></tr>';
+            html += '<tr><th>脚本名</th><td>' + d.script_name + '</td></tr>';
+            html += '<tr><th>触发方式</th><td>' + d.trigger_type + '</td></tr>';
+            html += '<tr><th>状态</th><td>' + (d.status === 'success' ? '<span class="badge bg-success">成功</span>' : '<span class="badge bg-danger">失败</span>') + '</td></tr>';
+            html += '<tr><th>影响行数</th><td>' + (d.row_count !== null ? d.row_count : '-') + '</td></tr>';
+            html += '<tr><th>耗时</th><td>' + (d.duration !== null ? d.duration + ' 秒' : '-') + '</td></tr>';
+            if (d.notify_channel) {
+                var ch = d.notify_channel === 'email' ? '邮件' : d.notify_channel === 'dingtalk' ? '钉钉' : '企微';
+                var ns = d.notify_status === true ? '<span class="badge bg-success">成功</span>' : d.notify_status === false ? '<span class="badge bg-danger">失败</span>' : '-';
+                html += '<tr><th>通知渠道</th><td>' + ch + '</td></tr>';
+                html += '<tr><th>通知对象</th><td>' + (d.notify_target || '-') + '</td></tr>';
+                html += '<tr><th>通知状态</th><td>' + ns + '</td></tr>';
+            }
+            html += '<tr><th>执行人</th><td>' + d.executed_by + '</td></tr>';
+            html += '<tr><th>执行时间</th><td>' + d.executed_at + '</td></tr>';
+            html += '</tbody></table>';
+
+            if (d.sql_executed) {
+                html += '<div class="mt-3"><strong><i class="bi bi-code"></i> 执行的 SQL 语句</strong>';
+                var safeSql = d.sql_executed.replace(/</g, String.fromCharCode(60)).replace(/>/g, String.fromCharCode(62));
+                html += '<pre class="bg-light p-3 rounded" style="max-height:300px;overflow:auto;font-size:0.8rem;"><code>' + safeSql + '</code></pre></div>';
+            }
+
+            if (d.error_message) {
+                html += '<div class="mt-3"><strong><i class="bi bi-exclamation-triangle text-danger"></i> 错误信息</strong>';
+                var safeErr = d.error_message.replace(/</g, String.fromCharCode(60)).replace(/>/g, String.fromCharCode(62));
+                html += '<pre class="bg-danger bg-opacity-10 p-3 rounded text-danger" style="font-size:0.8rem;">' + safeErr + '</pre></div>';
+            }
+
+            document.getElementById('logDetailBody').innerHTML = html;
+        })
+        .catch(e => {
+            document.getElementById('logDetailBody').innerHTML = '<div class="text-danger">加载失败: ' + e + '</div>';
+        });
+}
+</script>
+{% endblock %}

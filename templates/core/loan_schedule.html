@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% block title %}还款计划明细 - BI 工具箱{% endblock %}
+
+{% block extra_css %}
+<style>
+    .summary-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; }
+    .summary-item { text-align: center; }
+    .summary-value { font-size: 1.6rem; font-weight: 700; color: #1e293b; }
+    .summary-label { color: #64748b; font-size: 0.85rem; margin-top: 4px; }
+    .schedule-table th { position: sticky; top: 0; background: #f8fafc; }
+    .schedule-table td, .schedule-table th { text-align: right; white-space: nowrap; }
+    .schedule-table td:first-child, .schedule-table th:first-child { text-align: center; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5><i class="bi bi-calendar-check"></i> 还款计划明细</h5>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-success btn-sm" onclick="exportCSV()"><i class="bi bi-download"></i> 导出 CSV</button>
+        <button class="btn btn-outline-primary btn-sm" onclick="exportExcel()"><i class="bi bi-file-earmark-excel"></i> 导出 Excel</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="window.close()"><i class="bi bi-x"></i> 关闭</button>
+    </div>
+</div>
+
+<!-- 贷款参数 -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row" id="paramsInfo">
+            <div class="col-md-3"><strong>贷款金额：</strong><span id="pAmount">-</span></div>
+            <div class="col-md-3"><strong>年利率：</strong><span id="pRate">-</span></div>
+            <div class="col-md-3"><strong>贷款期限：</strong><span id="pMonths">-</span></div>
+            <div class="col-md-3"><strong>还款方式：</strong><span id="pType">-</span></div>
+        </div>
+    </div>
+</div>
+
+<!-- 汇总信息 -->
+<div class="summary-card mb-3">
+    <div class="row">
+        <div class="col-md-3 summary-item">
+            <div class="summary-value" id="sMonthly">-</div>
+            <div class="summary-label">每月还款（等额本息）/ 首月还款（等额本金）</div>
+        </div>
+        <div class="col-md-3 summary-item">
+            <div class="summary-value" id="sTotalInterest">-</div>
+            <div class="summary-label">总利息</div>
+        </div>
+        <div class="col-md-3 summary-item">
+            <div class="summary-value" id="sTotalPayment">-</div>
+            <div class="summary-label">还款总额</div>
+        </div>
+        <div class="col-md-3 summary-item">
+            <div class="summary-value" id="sTotalMonths">-</div>
+            <div class="summary-label">还款期数</div>
+        </div>
+    </div>
+</div>
+
+<!-- 还款计划表 -->
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+            <table class="table table-sm table-bordered table-hover schedule-table mb-0" id="scheduleTable">
+                <thead>
+                    <tr>
+                        <th>期数</th>
+                        <th>月供（元）</th>
+                        <th>月供本金（元）</th>
+                        <th>月供利息（元）</th>
+                        <th>剩余本金（元）</th>
+                        <th>已还本金累计</th>
+                        <th>已还利息累计</th>
+                    </tr>
+                </thead>
+                <tbody id="scheduleBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    var scheduleData = [];
+    var calcParams = {};
+
+    (function() {
+        // 从 URL 参数或 sessionStorage 获取贷款参数
+        var urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('amount')) {
+            calcParams = {
+                amount: parseFloat(urlParams.get('amount')),
+                annualRate: parseFloat(urlParams.get('rate')),
+                months: parseInt(urlParams.get('months')),
+                type: urlParams.get('type') || 'equal_installment'
+            };
+        } else {
+            var stored = sessionStorage.getItem('loanCalcParams');
+            if (stored) {
+                calcParams = JSON.parse(stored);
+            }
+        }
+
+        if (!calcParams.amount) {
+            document.getElementById('scheduleBody').innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">请先在首页输入贷款参数并计算</td></tr>';
+            return;
+        }
+
+        // 显示参数
+        document.getElementById('pAmount').textContent = calcParams.amount.toLocaleString('zh-CN', {minimumFractionDigits: 2}) + ' 元';
+        document.getElementById('pRate').textContent = calcParams.annualRate + '%';
+        document.getElementById('pMonths').textContent = calcParams.months + ' 个月';
+        document.getElementById('pType').textContent = calcParams.type === 'equal_installment' ? '等额本息' : '等额本金';
+
+        generateSchedule();
+    })();
+
+    function generateSchedule() {
+        var amount = calcParams.amount;
+        var monthlyRate = calcParams.annualRate / 100 / 12;
+        var months = calcParams.months;
+        var type = calcParams.type;
+
+        scheduleData = [];
+        var remainingPrincipal = amount;
+        var totalInterestPaid = 0;
+        var totalPrincipalPaid = 0;
+
+        if (type === 'equal_installment') {
+            // 等额本息：银行标准算法
+            // 1. 月供 = round(P * r * (1+r)^n / ((1+r)^n - 1), 2) 固定值
+            // 2. 每期利息 = round(剩余本金 * 月利率, 2) 四舍五入到分
+            // 3. 每期本金 = 月供 - 利息
+            // 4. 最后一期：本金 = 剩余本金，月供 = 本金 + 利息
+            var factor = Math.pow(1 + monthlyRate, months);
+            var monthlyPayment = Math.round(amount * monthlyRate * factor / (factor - 1) * 100) / 100;
+
+            for (var i = 1; i <= months; i++) {
+                var interest = Math.round(remainingPrincipal * monthlyRate * 100) / 100;
+                var principal, payment;
+
+                if (i === months) {
+                    // 最后一期：本金 = 剩余本金
+                    principal = Math.round(remainingPrincipal * 100) / 100;
+                    payment = principal + interest;
+                } else {
+                    principal = Math.round((monthlyPayment - interest) * 100) / 100;
+                    payment = monthlyPayment;
+                }
+
+                remainingPrincipal = Math.round((remainingPrincipal - principal) * 100) / 100;
+                if (remainingPrincipal < 0) remainingPrincipal = 0;
+
+                totalInterestPaid += interest;
+                totalPrincipalPaid += principal;
+
+                scheduleData.push({
+                    period: i,
+                    payment: Math.round(payment * 100) / 100,
+                    principal: Math.round(principal * 100) / 100,
+                    interest: Math.round(interest * 100) / 100,
+                    remaining: Math.round(remainingPrincipal * 100) / 100,
+                    cumPrincipal: Math.round(totalPrincipalPaid * 100) / 100,
+                    cumInterest: Math.round(totalInterestPaid * 100) / 100
+                });
+            }
+
+            document.getElementById('sMonthly').textContent = monthlyPayment.toFixed(2);
+        } else {
+            // 等额本金：内部全精度计算，仅显示时四舍五入
+            var monthlyPrincipal = amount / months;
+
+            for (var i = 1; i <= months; i++) {
+                var interest = remainingPrincipal * monthlyRate;
+                var principal = monthlyPrincipal;
+
+                // 最后一期：修正剩余本金误差
+                if (i === months) {
+                    principal = remainingPrincipal;
+                }
+
+                var payment = principal + interest;
+                remainingPrincipal = remainingPrincipal - principal;
+                if (remainingPrincipal < 0) remainingPrincipal = 0;
+
+                totalInterestPaid += interest;
+                totalPrincipalPaid += principal;
+
+                scheduleData.push({
+                    period: i,
+                    payment: Math.round(payment * 100) / 100,
+                    principal: Math.round(principal * 100) / 100,
+                    interest: Math.round(interest * 100) / 100,
+                    remaining: Math.round(remainingPrincipal * 100) / 100,
+                    cumPrincipal: Math.round(totalPrincipalPaid * 100) / 100,
+                    cumInterest: Math.round(totalInterestPaid * 100) / 100
+                });
+            }
+
+            document.getElementById('sMonthly').textContent = scheduleData[0].payment.toFixed(2);
+        }
+
+        document.getElementById('sTotalInterest').textContent = Math.round(totalInterestPaid * 100) / 100 + ' 元';
+        document.getElementById('sTotalPayment').textContent = Math.round((amount + totalInterestPaid) * 100) / 100 + ' 元';
+        document.getElementById('sTotalMonths').textContent = months + ' 期';
+
+        renderTable();
+    }
+
+    function renderTable() {
+        var html = '';
+        scheduleData.forEach(function(row) {
+            html += '<tr>';
+            html += '<td>' + row.period + '</td>';
+            html += '<td>' + row.payment.toFixed(2) + '</td>';
+            html += '<td>' + row.principal.toFixed(2) + '</td>';
+            html += '<td>' + row.interest.toFixed(2) + '</td>';
+            html += '<td>' + row.remaining.toFixed(2) + '</td>';
+            html += '<td>' + row.cumPrincipal.toFixed(2) + '</td>';
+            html += '<td>' + row.cumInterest.toFixed(2) + '</td>';
+            html += '</tr>';
+        });
+        document.getElementById('scheduleBody').innerHTML = html;
+    }
+
+    function exportCSV() {
+        var BOM = '\uFEFF';
+        var csv = BOM + '期数,月供（元）,月供本金（元）,月供利息（元）,剩余本金（元）,已还本金累计,已还利息累计\n';
+        scheduleData.forEach(function(row) {
+            csv += row.period + ',' + row.payment.toFixed(2) + ',' + row.principal.toFixed(2) + ',' + 
+                   row.interest.toFixed(2) + ',' + row.remaining.toFixed(2) + ',' + 
+                   row.cumPrincipal.toFixed(2) + ',' + row.cumInterest.toFixed(2) + '\n';
+        });
+        downloadFile(csv, '还款计划_' + calcParams.amount + '_' + calcParams.type + '.csv', 'text/csv;charset=utf-8');
+    }
+
+    function exportExcel() {
+        // 使用简单 HTML 表格导出为 xls
+        var html = '<html><head><meta charset="utf-8"></head><body>';
+        html += '<table border="1"><thead><tr>';
+        html += '<th>期数</th><th>月供（元）</th><th>月供本金（元）</th><th>月供利息（元）</th><th>剩余本金（元）</th><th>已还本金累计</th><th>已还利息累计</th>';
+        html += '</tr></thead><tbody>';
+        scheduleData.forEach(function(row) {
+            html += '<tr>';
+            html += '<td>' + row.period + '</td>';
+            html += '<td>' + row.payment.toFixed(2) + '</td>';
+            html += '<td>' + row.principal.toFixed(2) + '</td>';
+            html += '<td>' + row.interest.toFixed(2) + '</td>';
+            html += '<td>' + row.remaining.toFixed(2) + '</td>';
+            html += '<td>' + row.cumPrincipal.toFixed(2) + '</td>';
+            html += '<td>' + row.cumInterest.toFixed(2) + '</td>';
+            html += '</tr>';
+        });
+        html += '</tbody></table></body></html>';
+        downloadFile(html, '还款计划_' + calcParams.amount + '_' + calcParams.type + '.xls', 'application/vnd.ms-excel');
+    }
+
+    function downloadFile(content, filename, mimeType) {
+        var blob = new Blob([content], { type: mimeType });
+        var link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+</script>
+{% endblock %}

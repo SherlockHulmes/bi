@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}新建脚本 - BI 工具箱{% endblock %}
+{% block nav_scripts %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h4><i class="bi bi-plus-circle"></i> 新建 SQL 脚本</h4>
+</div>
+
+<div class="card p-4">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="mb-3">
+            <label class="form-label">脚本名称 <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" required placeholder="例如：每日对账数据汇总">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">脚本说明</label>
+            <textarea name="description" class="form-control" rows="2" placeholder="描述脚本的用途"></textarea>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">目标数据库</label>
+            <select name="target_db" class="form-select">
+                <option value="">使用默认数据库（.env 配置）</option>
+                {% for db in db_connections %}
+                <option value="{{ db.pk }}">{{ db.name }} ({{ db.host }}:{{ db.port }}/{{ db.database }})</option>
+                {% endfor %}
+            </select>
+            <small class="text-muted">选择此脚本要执行的目标数据库，如需新增连接请到管理后台配置</small>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">SQL 文件（可选）</label>
+            <input type="file" name="file" class="form-control" accept=".sql,.txt">
+            <small class="text-muted">支持 .sql 和 .txt 文件</small>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">SQL 内容</label>
+            <textarea name="content" class="form-control font-monospace" rows="10" placeholder="-- 在此粘贴 SQL 语句&#10;SELECT * FROM table_name LIMIT 10;"></textarea>
+            <small class="text-muted">如果同时上传文件和填写内容，优先使用文件内容</small>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">执行超时（秒）</label>
+            <input type="number" name="timeout" class="form-control" value="300" min="10" max="3600">
+        </div>
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 创建脚本</button>
+        <a href="{% url 'scripts:list' %}" class="btn btn-outline-secondary">取消</a>
+    </form>
+</div>
+{% endblock %}

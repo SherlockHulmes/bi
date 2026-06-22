@@ -1,0 +1,38 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/custom_admin.css' %}">
+<style>
+/* ========== 仅修复白色文字不可见问题 ========== */
+:root {
+    --body-fg: #1e293b;
+    --body-quiet-color: #475569;
+    --body-loud-color: #0f172a;
+    --link-fg: #3b82f6;
+    --link-hover-color: #1d4ed8;
+}
+
+.module caption,
+.module h2 {
+    color: #1e293b !important;
+}
+
+.module caption a,
+.module h2 a {
+    color: #1e293b !important;
+}
+</style>
+{% endblock %}
+
+{% block branding %}
+<h1 id="site-name">
+    <a href="{% url 'admin:index' %}">
+        📊 {{ site_header|default:"BI 工具箱 · 管理后台" }}
+    </a>
+</h1>
+{% endblock %}
+
+{% block nav-global %}
+{% endblock %}

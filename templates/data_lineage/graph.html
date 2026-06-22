@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+{% block title %}数据血缘图 - BI 工具箱{% endblock %}
+{% block nav_data_lineage %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+    #lineageGraph { width: 100%; height: 700px; border: 1px solid #e0e0e0; border-radius: 8px; }
+    .legend { display: flex; gap: 20px; margin-bottom: 10px; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; }
+    .legend-color { width: 16px; height: 16px; border-radius: 3px; }
+    #tableDetail { max-height: 600px; overflow-y: auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4><i class="bi bi-diagram-3"></i> 数据血缘图</h4>
+    <div class="d-flex gap-2">
+        <span class="text-muted">扫描时间：{{ scan.scanned_at|date:"Y-m-d H:i:s" }} | 事件：{{ scan.event_count }} | 表：{{ scan.table_count }} | 依赖：{{ scan.edge_count }}</span>
+        <a href="{% url 'data_lineage:export' scan.pk %}" class="btn btn-outline-success btn-sm"><i class="bi bi-download"></i> 导出 Excel</a>
+        <a href="{% url 'data_lineage:scan_list' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> 返回</a>
+    </div>
+</div>
+
+<div class="d-flex align-items-center gap-3 mb-3">
+    <div class="legend">
+        <div class="legend-item"><div class="legend-color" style="background:#4CAF50;"></div> 基础表（gdcd 源库）</div>
+        <div class="legend-item"><div class="legend-color" style="background:#2196F3;"></div> 中间表（gdbi 开发库）</div>
+        <div class="legend-item"><span style="font-size:0.85rem;">↓ 箭头表示数据流向</span></div>
+    </div>
+    <div class="input-group" style="width:350px;">
+        <input type="text" id="searchInput" class="form-control form-control-sm" placeholder="搜索表名、注释、字段名、字段注释...">
+        <button class="btn btn-outline-primary btn-sm" onclick="doSearch()"><i class="bi bi-search"></i> 搜索</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="clearSearch()">清除</button>
+    </div>
+    <span id="searchResult" class="text-muted" style="font-size:0.85rem;"></span>
+</div>
+
+<div class="row">
+    <div class="col-md-9">
+        <div id="lineageGraph"></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card" id="tableDetail">
+            <div class="card-header"><strong>表详情</strong></div>
+            <div class="card-body">
+                <p class="text-muted">点击图中的表节点查看详情</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 调试信息 -->
+{% if debug_info %}
+<div class="card mt-3">
+    <div class="card-header"><strong><i class="bi bi-bug"></i> 解析详情（调试）</strong></div>
+    <div class="card-body" style="max-height:300px;overflow-y:auto;">
+        <table class="table table-sm table-bordered">
+            <thead><tr><th>事件名</th><th>SQL摘要</th><th>目标表</th><th>源表</th></tr></thead>
+            <tbody>
+            {% for d in debug_info %}
+            <tr>
+                <td>{{ d.name }}</td>
+                <td><small class="text-muted">{{ d.sql_short }}</small></td>
+                <td>{% for t in d.target_tables %}<span class="badge bg-primary">{{ t }}</span> {% empty %}-{% endfor %}</td>
+                <td>{% for s in d.source_tables %}<span class="badge bg-success">{{ s }}</span> {% empty %}-{% endfor %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.6/standalone/umd/vis-network.min.js"></script>
+<script>
+    var nodesData = {{ nodes_json|safe }};
+    var edgesData = {{ edges_json|safe }};
+    var scanId = {{ scan.pk }};
+
+    var nodes = new vis.DataSet(nodesData);
+    var edges = new vis.DataSet(edgesData);
+
+    var container = document.getElementById('lineageGraph');
+    var data = { nodes: nodes, edges: edges };
+
+    const options = {
+        layout: {
+            improvedLayout: false,
+        },
+        physics: {
+            enabled: false,
+        },
+        interaction: { hover: true, tooltipDelay: 200 },
+        nodes: {
+            margin: 10,
+            borderWidth: 2,
+            shadow: true,
+            widthConstraint: { maximum: 200 },
+            font: { size: 12 },
+        },
+        edges: {
+            smooth: { type: 'cubicBezier' },
+            color: { color: '#888', highlight: '#333' },
+            width: 2,
+        },
+    };
+
+    const network = new vis.Network(container, data, options);
+
+    // 自动适配视图，确保所有节点可见
+    network.once('afterDrawing', function() {
+        network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+    });
+
+    // 搜索功能
+    function doSearch() {
+        var keyword = document.getElementById('searchInput').value.trim().toLowerCase();
+        if (!keyword) {
+            clearSearch();
+            return;
+        }
+
+        var allNodeIds = nodesData.map(function(n) { return n.id; });
+        var matchedIds = [];
+        var resultText = '';
+
+        // 搜索表名和注释
+        nodesData.forEach(function(node) {
+            var label = (node.label || '').toLowerCase();
+            var comment = (node.table_comment || '').toLowerCase();
+            if (label.indexOf(keyword) >= 0 || comment.indexOf(keyword) >= 0) {
+                matchedIds.push(node.id);
+            }
+        });
+
+        // 搜索字段名和字段注释（通过 API 异步搜索）
+        var fieldMatches = [];
+        var searchPromises = [];
+        nodesData.forEach(function(node) {
+            var p = fetch('/data-lineage/' + scanId + '/table-detail/?db=' + encodeURIComponent(node.db_name) + '&table=' + encodeURIComponent(node.table_name))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.columns) {
+                        data.columns.forEach(function(col) {
+                            var colName = (col.name || '').toLowerCase();
+                            var colComment = (col.comment || '').toLowerCase();
+                            if (colName.indexOf(keyword) >= 0 || colComment.indexOf(keyword) >= 0) {
+                                if (matchedIds.indexOf(node.id) < 0) {
+                                    matchedIds.push(node.id);
+                                }
+                                fieldMatches.push({
+                                    table: node.table_name,
+                                    field: col.name,
+                                    comment: col.comment
+                                });
+                            }
+                        });
+                    }
+                })
+                .catch(function() {});
+            searchPromises.push(p);
+        });
+
+        Promise.all(searchPromises).then(function() {
+            // 高亮匹配节点，其余半透明
+            var updateArray = [];
+            nodesData.forEach(function(node) {
+                var isMatch = matchedIds.indexOf(node.id) >= 0;
+                updateArray.push({
+                    id: node.id,
+                    color: isMatch ? node.color : { background: '#e0e0e0', border: '#ccc' },
+                    font: { color: isMatch ? 'white' : '#999', size: isMatch ? 14 : 10 },
+                    opacity: isMatch ? 1.0 : 0.3,
+                });
+            });
+            nodes.update(updateArray);
+
+            // 高亮匹配的边
+            var edgeUpdate = [];
+            edgesData.forEach(function(edge) {
+                var srcMatch = matchedIds.indexOf(edge.from) >= 0;
+                var tgtMatch = matchedIds.indexOf(edge.to) >= 0;
+                edgeUpdate.push({
+                    id: edge.id,
+                    color: (srcMatch || tgtMatch) ? '#888' : '#e0e0e0',
+                    width: (srcMatch || tgtMatch) ? 2 : 1,
+                });
+            });
+            edges.update(edgeUpdate);
+
+            // 显示结果
+            resultText = '找到 ' + matchedIds.length + ' 个表';
+            if (fieldMatches.length > 0) {
+                resultText += '，' + fieldMatches.length + ' 个匹配字段';
+            }
+            document.getElementById('searchResult').textContent = resultText;
+        });
+    }
+
+    function clearSearch() {
+        document.getElementById('searchInput').value = '';
+        document.getElementById('searchResult').textContent = '';
+        // 恢复所有节点样式
+        var updateArray = [];
+        nodesData.forEach(function(node) {
+            updateArray.push({
+                id: node.id,
+                color: node.color,
+                font: { color: 'white', size: 14 },
+                opacity: 1.0,
+            });
+        });
+        nodes.update(updateArray);
+        // 恢复边
+        var edgeUpdate = [];
+        edgesData.forEach(function(edge) {
+            edgeUpdate.push({ id: edge.id, color: '#888', width: 2 });
+        });
+        edges.update(edgeUpdate);
+    }
+
+    // 回车触发搜索
+    document.getElementById('searchInput').addEventListener('keyup', function(e) {
+        if (e.key === 'Enter') doSearch();
+    });
+
+    network.on('click', function(params) {
+        if (params.nodes.length > 0) {
+            const nodeId = params.nodes[0];
+            const node = nodesData.find(n => n.id === nodeId);
+            if (node) {
+                loadTableDetail(node.db_name, node.table_name);
+            }
+        }
+    });
+
+    function loadTableDetail(dbName, tableName) {
+        const detailDiv = document.getElementById('tableDetail');
+        detailDiv.innerHTML = '<div class="card-header"><strong>' + tableName + '</strong></div><div class="card-body"><p class="text-muted">加载中...</p></div>';
+
+        fetch('/data-lineage/' + scanId + '/table-detail/?db=' + encodeURIComponent(dbName) + '&table=' + encodeURIComponent(tableName))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    detailDiv.innerHTML = '<div class="card-header"><strong>' + tableName + '</strong></div><div class="card-body"><p class="text-danger">' + data.error + '</p></div>';
+                    return;
+                }
+                var html = '<div class="card-header"><strong>' + data.table_name + '</strong>';
+                html += ' <span class="badge ' + (data.is_source ? 'bg-success' : 'bg-primary') + '">' + (data.is_source ? '基础表' : '中间表') + '</span></div>';
+                html += '<div class="card-body">';
+                html += '<p><strong>数据库：</strong>' + data.database_name + '</p>';
+                if (data.table_comment) {
+                    html += '<p><strong>注释：</strong>' + data.table_comment + '</p>';
+                }
+                if (data.columns && data.columns.length > 0) {
+                    html += '<table class="table table-sm table-bordered"><thead><tr><th>字段名</th><th>类型</th><th>注释</th></tr></thead><tbody>';
+                    data.columns.forEach(function(col) {
+                        html += '<tr><td>' + col.name + '</td><td><small>' + col.type + '</small></td><td><small>' + (col.comment || '-') + '</small></td></tr>';
+                    });
+                    html += '</tbody></table>';
+                } else {
+                    html += '<p class="text-muted">无字段信息</p>';
+                }
+                html += '</div>';
+                detailDiv.innerHTML = html;
+            })
+            .catch(function(err) {
+                detailDiv.innerHTML = '<div class="card-header"><strong>' + tableName + '</strong></div><div class="card-body"><p class="text-danger">加载失败</p></div>';
+            });
+    }
+</script>
+{% endblock %}

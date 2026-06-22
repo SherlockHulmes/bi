@@ -1,0 +1,33 @@
+/* BI 工具箱 - Django Admin 最小化修复
+ * 仅修复白色文字不可见问题，不改变其他样式
+ */
+
+/* ========== 修复首页模块标题白色文字 ========== */
+.module caption,
+.module h2,
+#content-main .module caption,
+#content-main .module h2 {
+    color: #1e293b !important;
+}
+
+.module caption a,
+.module h2 a {
+    color: #1e293b !important;
+}
+
+/* 首页表格中的模型链接 */
+#content-main table td a,
+#content-main .module td a {
+    color: #3b82f6 !important;
+}
+
+/* 首页表格单元格文字 */
+#content-main table td,
+.module td {
+    color: #374151 !important;
+}
+
+/* 最近操作区域 */
+.module h3 {
+    color: #1e293b !important;
+}

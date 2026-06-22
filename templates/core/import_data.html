@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+{% block title %}数据导入 - BI 工具箱{% endblock %}
+{% block nav_import %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1><i class="bi bi-upload"></i> Excel / CSV 导入 MySQL</h1>
+</div>
+
+<div class="card p-4">
+    <div class="file-area" id="dropZone" style="border:2px dashed #cbd5e1; border-radius:12px; padding:30px; text-align:center; cursor:pointer; background:#fff;">
+        <p style="font-weight:500; margin-bottom:8px;"><i class="bi bi-cloud-arrow-up" style="font-size:2rem;"></i></p>
+        <p style="font-weight:500;">点击或拖拽文件到此处</p>
+        <p style="color:#64748b; font-size:0.85rem;">支持 CSV, XLSX, XLS (最大 100MB)</p>
+        <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none;">
+    </div>
+
+    <div id="fileInfo" class="alert alert-info mt-3" style="display:none;"></div>
+
+    <div class="progress mt-2" id="progressContainer" style="display:none; height:8px;">
+        <div class="progress-bar" id="progressFill" style="width:0%;"></div>
+    </div>
+    <small id="progressText" class="text-muted mt-1" style="display:none;"></small>
+
+    <div id="previewSection" style="display:none;" class="mt-4">
+        <h5>数据预览与列名自定义</h5>
+        <div class="mb-2">
+            <span id="rowCount" class="badge bg-primary"></span> 行，
+            <span id="colCount" class="badge bg-secondary"></span> 列
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold">自定义数据库列名</label>
+            <div id="columnInputs" class="d-flex flex-wrap gap-2"></div>
+            <small class="text-muted">列名只能包含字母、数字和下划线，不允许重复或为空</small>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered" id="previewTable">
+                <thead id="tableHeader" class="table-light"></thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+
+        <hr>
+        <h5>导入设置</h5>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">目标数据库 <span class="text-danger">*</span></label>
+                <select id="targetDbSelect" class="form-select">
+                    {% for db in db_connections %}
+                    <option value="{{ db.pk }}">{{ db.name }} ({{ db.host }}:{{ db.port }}/{{ db.database }})</option>
+                    {% endfor %}
+                </select>
+                {% if not db_connections %}
+                <div class="text-danger small mt-1">未配置数据库连接，请先到管理后台 → 数据库连接 中添加</div>
+                {% endif %}
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">目标表名 <span class="text-warning">（必须以 temp_ 或 dict_ 开头）</span></label>
+                <input type="text" class="form-control" id="tableNameInput" placeholder="例如: temp_your_table">
+                <small class="text-muted">长度 ≤ 64，只含字母、数字、下划线</small>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">导入模式</label>
+                <div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="ifExists" value="replace" checked>
+                        <label class="form-check-label">替换现有表</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="ifExists" value="append">
+                        <label class="form-check-label">追加数据</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <button id="importBtn" class="btn btn-primary mt-3">
+            <i class="bi bi-rocket-takeoff"></i> 开始导入
+        </button>
+        <div id="importStatus" class="mt-3"></div>
+    </div>
+
+    <div id="importPreviewSection" style="display:none;" class="mt-4">
+        <h5><i class="bi bi-check-circle text-success"></i> 导入成功 - 前10行数据</h5>
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered">
+                <thead id="importTableHeader" class="table-light"></thead>
+                <tbody id="importTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .file-area:hover { border-color: #3b82f6 !important; }
+    .file-area.dragover { border-color: #3b82f6 !important; background: #eff6ff !important; }
+    .column-input-item { flex: 0 0 auto; min-width: 120px; }
+    .column-input-item input { padding: 4px 8px; font-size: 0.85rem; }
+    .column-input-item small { font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 2px; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const CSRF_TOKEN = "{{ csrf_token }}";
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const previewSection = document.getElementById('previewSection');
+    const tableNameInput = document.getElementById('tableNameInput');
+    const targetDbSelect = document.getElementById('targetDbSelect');
+    const importBtn = document.getElementById('importBtn');
+    const importStatus = document.getElementById('importStatus');
+    const importPreviewSection = document.getElementById('importPreviewSection');
+    const columnInputsDiv = document.getElementById('columnInputs');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+
+    let currentFileToken = null;
+    let originalColumns = [];
+
+    function htmlEscape(str) {
+        if (str === null || str === undefined) return '';
+        const div = document.createElement('div');
+        div.appendChild(document.createTextNode(String(str)));
+        return div.innerHTML;
+    }
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault(); dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+
+    async function handleFile(file) {
+        currentFileToken = null;
+        fileInfo.style.display = 'block';
+        fileInfo.innerHTML = `已选择: ${htmlEscape(file.name)} (${(file.size/1024).toFixed(2)} KB)`;
+        previewSection.style.display = 'none';
+        importPreviewSection.style.display = 'none';
+        importStatus.innerHTML = '';
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('csrf_token', CSRF_TOKEN);
+
+        progressContainer.style.display = 'flex';
+        progressText.style.display = 'block';
+        progressFill.style.width = '0%';
+
+        try {
+            const data = await uploadWithProgress('/api/preview/', formData, (pct) => {
+                progressFill.style.width = pct + '%';
+                progressText.textContent = `上传中... ${pct}%`;
+            });
+            if (!data.success) throw new Error(data.error);
+
+            progressFill.style.width = '100%';
+            progressText.textContent = '上传完成！';
+
+            currentFileToken = data.file_token;
+            originalColumns = data.columns;
+            displayPreview(data);
+            renderColumnInputs(originalColumns);
+            previewSection.style.display = 'block';
+
+            let baseName = file.name.replace(/\.[^/.]+$/, "");
+            let suggestedName = baseName.replace(/[^a-zA-Z0-9_]/g, '');
+            if (!suggestedName || suggestedName.length < 2) {
+                suggestedName = 'data_' + new Date().toISOString().slice(0,10).replace(/-/g,'');
+            }
+            if (!suggestedName.startsWith('temp_') && !suggestedName.startsWith('dict_')) suggestedName = 'temp_' + suggestedName;
+            tableNameInput.value = suggestedName;
+
+            setTimeout(() => { progressContainer.style.display = 'none'; progressText.style.display = 'none'; }, 2000);
+        } catch (err) {
+            fileInfo.innerHTML += `<div class="alert alert-danger mt-2">预览失败: ${htmlEscape(err.message)}</div>`;
+            progressContainer.style.display = 'none'; progressText.style.display = 'none';
+        }
+    }
+
+    function uploadWithProgress(url, formData, onProgress) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('X-CSRFToken', CSRF_TOKEN);
+    xhr.upload.addEventListener('progress', (e) => { if (e.lengthComputable) onProgress(Math.round(e.loaded/e.total*100)); });
+            xhr.addEventListener('load', () => { try { resolve(JSON.parse(xhr.responseText)); } catch(e) { reject(new Error('无效响应')); } });
+            xhr.addEventListener('error', () => reject(new Error('网络错误')));
+            xhr.send(formData);
+        });
+    }
+
+    function renderColumnInputs(columns) {
+        columnInputsDiv.innerHTML = columns.map(col => `
+            <div class="column-input-item">
+                <small title="${htmlEscape(col)}">${htmlEscape(col)}</small>
+                <input type="text" class="form-control form-control-sm custom-column-input" value="${htmlEscape(col)}">
+            </div>`).join('');
+    }
+
+    function displayPreview(data) {
+        document.getElementById('rowCount').textContent = data.total_rows;
+        document.getElementById('colCount').textContent = data.columns.length;
+        document.getElementById('tableHeader').innerHTML = '<tr>' + data.columns.map(c => `<th>${htmlEscape(c)}</th>`).join('') + '</tr>';
+        document.getElementById('tableBody').innerHTML = data.preview.map(row =>
+            '<tr>' + data.columns.map(c => `<td>${row[c] !== null ? htmlEscape(row[c]) : '<i class="text-muted">NULL</i>'}</td>`).join('') + '</tr>'
+        ).join('');
+    }
+
+    importBtn.addEventListener('click', async () => {
+        const tableName = tableNameInput.value.trim();
+        const ifExists = document.querySelector('input[name="ifExists"]:checked').value;
+        const customColumns = Array.from(document.querySelectorAll('.custom-column-input')).map(i => i.value.trim());
+        const targetDbId = targetDbSelect ? targetDbSelect.value : null;
+
+        if (!tableName) return importStatus.innerHTML = '<div class="alert alert-danger">请输入表名</div>';
+        if (!tableName.startsWith('temp_') && !tableName.startsWith('dict_')) return importStatus.innerHTML = '<div class="alert alert-danger">表名必须以 temp_ 或 dict_ 开头</div>';
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) return importStatus.innerHTML = '<div class="alert alert-danger">表名格式不合法</div>';
+        if (!currentFileToken) return importStatus.innerHTML = '<div class="alert alert-danger">请先上传文件</div>';
+        if (new Set(customColumns).size !== customColumns.length) return importStatus.innerHTML = '<div class="alert alert-danger">存在重复列名</div>';
+        if (customColumns.some(c => !c)) return importStatus.innerHTML = '<div class="alert alert-danger">列名不能为空</div>';
+
+        importStatus.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div>导入中...';
+        importBtn.disabled = true;
+
+        try {
+                const resp = await fetch('{% url "core:do_import" %}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+                body: JSON.stringify({
+                    file_token: currentFileToken,
+                    table_name: tableName,
+                    if_exists: ifExists,
+                    custom_columns: customColumns,
+                    target_db_id: targetDbId || null
+                })
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error);
+
+            importStatus.innerHTML = `<div class="alert alert-success">✓ ${htmlEscape(data.message)}</div>`;
+            if (data.preview) {
+                importPreviewSection.style.display = 'block';
+                document.getElementById('importTableHeader').innerHTML = '<tr>' + data.columns.map(c => `<th>${htmlEscape(c)}</th>`).join('') + '</tr>';
+                document.getElementById('importTableBody').innerHTML = data.preview.map(row =>
+                    '<tr>' + data.columns.map(c => `<td>${row[c] !== null ? htmlEscape(row[c]) : '<i>NULL</i>'}</td>`).join('') + '</tr>'
+                ).join('');
+            }
+            currentFileToken = null;
+        } catch (err) {
+            importStatus.innerHTML = `<div class="alert alert-danger">导入失败: ${htmlEscape(err.message)}</div>`;
+        } finally {
+            importBtn.disabled = false;
+        }
+    });
+</script>
+{% endblock %}

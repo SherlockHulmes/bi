@@ -1,0 +1,11 @@
+{% extends "admin/change_form.html" %}
+{% block submit_buttons_bottom %}
+<div class="submit-row">
+    <input type="submit" value="保存" name="_save" class="default" />
+    <input type="submit" value="保存并继续编辑" name="_continue" />
+    <input type="submit" value="🔧 测试连接" name="_test_connection" style="background:#198754;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;" />
+    {% if show_delete_link %}
+    <a href="delete/" class="deletelink">删除</a>
+    {% endif %}
+</div>
+{% endblock %}

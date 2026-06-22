@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}{{ script.name }} - BI 工具箱{% endblock %}
+{% block nav_scripts %}active{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4><i class="bi bi-code-slash"></i> {{ script.name }}</h4>
+    <div>
+        <button id="executeBtn" class="btn btn-success btn-sm"><i class="bi bi-play-fill"></i> 执行脚本</button>
+        <a href="{% url 'scripts:download' script.pk %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载结果</a>
+        <a href="{% url 'scripts:edit' script.pk %}" class="btn btn-outline-primary btn-sm"><i class="bi bi-pencil"></i> 编辑</a>
+        <a href="{% url 'scripts:delete' script.pk %}" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i> 删除</a>
+        <a href="{% url 'scripts:list' %}" class="btn btn-outline-secondary btn-sm">返回列表</a>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-md-8">
+        <div class="card p-4 mb-3">
+            <h6>SQL 内容</h6>
+            <pre class="bg-light p-3 rounded" style="max-height:400px; overflow:auto;"><code>{{ sql_content }}</code></pre>
+        </div>
+
+        <div class="card p-4">
+            <h6>执行结果</h6>
+            <div id="executeOutput" class="p-3 rounded" style="min-height:100px; max-height:500px; overflow:auto;">
+                <p class="text-muted">点击"执行脚本"运行...</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card p-4 mb-3">
+            <h6>脚本信息</h6>
+            <table class="table table-sm table-borderless">
+                <tr><td class="text-muted">状态</td><td>{% if script.is_active %}<span class="badge bg-success">启用</span>{% else %}<span class="badge bg-secondary">停用</span>{% endif %}</td></tr>
+                <tr><td class="text-muted">目标数据库</td><td>{% if script.target_db %}<span class="badge bg-primary">{{ script.target_db.name }}</span>{% else %}<span class="text-muted">默认</span>{% endif %}</td></tr>
+                <tr><td class="text-muted">超时</td><td>{{ script.timeout }} 秒</td></tr>
+                <tr><td class="text-muted">创建人</td><td>{{ script.created_by|default:"-" }}</td></tr>
+                <tr><td class="text-muted">创建时间</td><td>{{ script.created_at|date:"Y-m-d H:i" }}</td></tr>
+            </table>
+            {% if script.description %}
+            <hr><p class="text-muted small">{{ script.description }}</p>
+            {% endif %}
+        </div>
+
+        <div class="card p-4">
+            <h6>最近执行记录</h6>
+            {% for log in logs %}
+            <div class="border-bottom pb-2 mb-2">
+                {% if log.status == 'success' %}<span class="badge bg-success">成功</span>
+                {% elif log.status == 'failed' %}<span class="badge bg-danger">失败</span>
+                {% else %}<span class="badge bg-info">执行中</span>{% endif %}
+                <small class="text-muted">{{ log.executed_at|date:"m-d H:i" }}</small>
+                {% if log.duration %}<small class="text-muted">| {{ log.duration }}s</small>{% endif %}
+                {% if log.row_count %}<small class="text-muted">| {{ log.row_count }}行</small>{% endif %}
+            </div>
+            {% empty %}
+            <p class="text-muted">暂无执行记录</p>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const CSRF_TOKEN = "{{ csrf_token }}";
+    const executeBtn = document.getElementById('executeBtn');
+    const executeOutput = document.getElementById('executeOutput');
+
+    function htmlEscape(str) {
+        if (str === null || str === undefined) return '';
+        const div = document.createElement('div');
+        div.appendChild(document.createTextNode(String(str)));
+        return div.innerHTML;
+    }
+
+    function renderResults(results) {
+        let html = '';
+        results.forEach((result, idx) => {
+            if (idx > 0) html += '<hr>';
+            if (result.message) {
+                html += `<div class="alert alert-info mb-2">${htmlEscape(result.message)}</div>`;
+            } else if (result.columns) {
+                html += `<div class="mb-2"><span class="badge bg-secondary">结果集 ${idx + 1}</span> `;
+                html += `<span class="badge bg-info">${result.total_rows} 行</span>`;
+                if (result.truncated) html += ` <span class="badge bg-warning">仅显示前 200 行</span>`;
+                html += `</div>`;
+                html += '<div class="table-responsive"><table class="table table-sm table-bordered table-striped table-hover">';
+                html += '<thead class="table-primary"><tr>';
+                result.columns.forEach(col => { html += `<th>${htmlEscape(col)}</th>`; });
+                html += '</tr></thead><tbody>';
+                result.rows.forEach(row => {
+                    html += '<tr>';
+                    row.forEach(cell => {
+                        html += `<td>${cell !== null ? htmlEscape(cell) : '<i class="text-muted">NULL</i>'}</td>`;
+                    });
+                    html += '</tr>';
+                });
+                html += '</tbody></table></div>';
+            }
+        });
+        return html;
+    }
+
+    executeBtn.addEventListener('click', async () => {
+        executeBtn.disabled = true;
+        executeBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>执行中...';
+        executeOutput.innerHTML = '<div class="text-center"><span class="spinner-border"></span><p class="mt-2 text-muted">正在执行...</p></div>';
+
+        try {
+            const resp = await fetch("{% url 'scripts:execute' script.pk %}", {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+            });
+            const data = await resp.json();
+            if (data.success) {
+                let html = `<div class="alert alert-success mb-3">✓ ${htmlEscape(data.message)} | 影响行数: ${data.row_count}</div>`;
+                if (data.results && data.results.length > 0) {
+                    html += renderResults(data.results);
+                }
+                executeOutput.innerHTML = html;
+            } else {
+                executeOutput.innerHTML = `<div class="alert alert-danger">❌ 执行失败: ${htmlEscape(data.error)}</div>`;
+            }
+        } catch (err) {
+            executeOutput.innerHTML = `<div class="alert alert-danger">❌ 请求失败: ${htmlEscape(err.message)}</div>`;
+        } finally {
+            executeBtn.disabled = false;
+            executeBtn.innerHTML = '<i class="bi bi-play-fill"></i> 执行脚本';
+        }
+    });
+</script>
+{% endblock %}

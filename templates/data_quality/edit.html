@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}编辑质量规则 - BI 工具箱{% endblock %}
+{% block nav_data_quality %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h4><i class="bi bi-pencil-square"></i> 编辑质量规则</h4>
+</div>
+
+<div class="card p-4" style="max-width:750px;">
+    <form method="post">
+        {% csrf_token %}
+        <div class="mb-3">
+            <label class="form-label">规则名称 <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" required value="{{ rule.name }}">
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">规则描述</label>
+            <textarea name="description" class="form-control" rows="2">{{ rule.description }}</textarea>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">目标数据库 <span class="text-danger">*</span></label>
+            <select name="target_db" class="form-select" required>
+                {% for db in db_connections %}
+                <option value="{{ db.pk }}" {% if rule.target_db.pk == db.pk %}selected{% endif %}>{{ db.name }} ({{ db.host }}:{{ db.port }}/{{ db.database }})</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">SQL 查询 <span class="text-danger">*</span></label>
+            <textarea name="sql_query" class="form-control font-monospace" rows="5" required>{{ rule.sql_query }}</textarea>
+            <small class="text-muted">输入要执行的 SQL 查询语句</small>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">告警条件</label>
+                <select name="condition_type" class="form-select" id="conditionType">
+                    {% for val, label in condition_choices %}
+                    <option value="{{ val }}" {% if rule.condition_type == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-4" id="columnField" {% if rule.condition_type not in 'value_gt,value_lt,value_eq' %}style="display:none;"{% endif %}>
+                <label class="form-label">检查列名</label>
+                <input type="text" name="check_column" class="form-control" value="{{ rule.check_column }}" placeholder="列名">
+            </div>
+            <div class="col-md-4" id="thresholdField" {% if rule.condition_type not in 'value_gt,value_lt,value_eq' %}style="display:none;"{% endif %}>
+                <label class="form-label">阈值</label>
+                <input type="number" name="threshold" class="form-control" step="any" value="{{ rule.threshold }}">
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">执行计划</label>
+            <div class="d-flex gap-3 flex-wrap">
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="manual" id="typeManual" {% if rule.schedule_type == 'manual' %}checked{% endif %}>
+                    <label class="form-check-label" for="typeManual">仅手动</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="every_minutes" id="typeEveryMinutes" {% if rule.schedule_type == 'every_minutes' %}checked{% endif %}>
+                    <label class="form-check-label" for="typeEveryMinutes">每N分钟</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="daily" id="typeDaily" {% if rule.schedule_type == 'daily' %}checked{% endif %}>
+                    <label class="form-check-label" for="typeDaily">每天</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="weekly" id="typeWeekly" {% if rule.schedule_type == 'weekly' %}checked{% endif %}>
+                    <label class="form-check-label" for="typeWeekly">每周</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input schedule-type" type="radio" name="schedule_type" value="monthly" id="typeMonthly" {% if rule.schedule_type == 'monthly' %}checked{% endif %}>
+                    <label class="form-check-label" for="typeMonthly">每月</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-3" id="intervalSection" {% if rule.schedule_type != 'every_minutes' %}style="display:none;"{% endif %}>
+            <label class="form-label">执行间隔（分钟）</label>
+            <input type="number" name="interval_minutes" class="form-control" style="width:120px;" min="1" max="1440" value="{{ rule.interval_minutes }}">
+            <small class="text-muted">范围 1-1440，例如 5 表示每 5 分钟执行一次</small>
+        </div>
+
+        <div class="mb-3" id="timeSection" {% if rule.schedule_type == 'manual' or rule.schedule_type == 'every_minutes' %}style="display:none;"{% endif %}>
+            <label class="form-label">执行时间</label>
+            <div class="d-flex gap-2 align-items-center">
+                <select name="hour" class="form-select" style="width:auto;" id="hourSelect"></select>
+                <span>:</span>
+                <select name="minute" class="form-select" style="width:auto;" id="minuteSelect"></select>
+            </div>
+        </div>
+
+        <div class="mb-3" id="weeklySection" {% if rule.schedule_type != 'weekly' %}style="display:none;"{% endif %}>
+            <label class="form-label">选择星期</label>
+            <div class="d-flex gap-2 flex-wrap">
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="0" id="wd0" {% if '0' in rule.schedule_days %}checked{% endif %}><label class="form-check-label" for="wd0">周一</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="1" id="wd1" {% if '1' in rule.schedule_days %}checked{% endif %}><label class="form-check-label" for="wd1">周二</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="2" id="wd2" {% if '2' in rule.schedule_days %}checked{% endif %}><label class="form-check-label" for="wd2">周三</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="3" id="wd3" {% if '3' in rule.schedule_days %}checked{% endif %}><label class="form-check-label" for="wd3">周四</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="4" id="wd4" {% if '4' in rule.schedule_days %}checked{% endif %}><label class="form-check-label" for="wd4">周五</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="5" id="wd5" {% if '5' in rule.schedule_days %}checked{% endif %}><label class="form-check-label" for="wd5">周六</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="weekday" value="6" id="wd6" {% if '6' in rule.schedule_days %}checked{% endif %}><label class="form-check-label" for="wd6">周日</label></div>
+            </div>
+            <input type="hidden" name="days" id="daysHidden" value="{{ rule.schedule_days }}">
+        </div>
+
+        <div class="mb-3" id="monthlySection" {% if rule.schedule_type != 'monthly' %}style="display:none;"{% endif %}>
+            <label class="form-label">每月几号</label>
+            <input type="number" name="day_of_month" class="form-control" style="width:120px;" min="1" max="28" value="{{ rule.schedule_day_of_month }}">
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label">通知渠道</label>
+                <select name="notify_channel" class="form-select">
+                    {% for val, label in notify_choices %}
+                    <option value="{{ val }}" {% if rule.notify_channel == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">收件人邮箱</label>
+                <input type="text" name="email_recipients" class="form-control" value="{{ rule.email_recipients }}" placeholder="多个邮箱用逗号分隔">
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_enabled" id="isEnabled" {% if rule.is_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="isEnabled">启用</label>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存修改</button>
+        <a href="{% url 'data_quality:rule_list' %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回列表</a>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const hourSelect = document.getElementById('hourSelect');
+    const currentHour = {{ rule.schedule_hour }};
+    hourSelect.innerHTML = '';
+    for (let i = 0; i < 24; i++) {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = String(i).padStart(2, '0');
+        if (i === currentHour) opt.selected = true;
+        hourSelect.appendChild(opt);
+    }
+
+    const minuteSelect = document.getElementById('minuteSelect');
+    const currentMinute = {{ rule.schedule_minute }};
+    minuteSelect.innerHTML = '';
+    for (let m = 0; m < 60; m++) {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = String(m).padStart(2, '0');
+        if (m === currentMinute) opt.selected = true;
+        minuteSelect.appendChild(opt);
+    }
+
+    document.getElementById('conditionType').addEventListener('change', function() {
+        const val = this.value;
+        const show = ['value_gt', 'value_lt', 'value_eq'].includes(val);
+        document.getElementById('columnField').style.display = show ? 'block' : 'none';
+        document.getElementById('thresholdField').style.display = show ? 'block' : 'none';
+    });
+
+    document.querySelectorAll('.schedule-type').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const type = radio.value;
+            document.getElementById('intervalSection').style.display = type === 'every_minutes' ? 'block' : 'none';
+            document.getElementById('timeSection').style.display = (type === 'manual' || type === 'every_minutes') ? 'none' : 'flex';
+            document.getElementById('weeklySection').style.display = type === 'weekly' ? 'block' : 'none';
+            document.getElementById('monthlySection').style.display = type === 'monthly' ? 'block' : 'none';
+        });
+    });
+
+    document.querySelector('form').addEventListener('submit', () => {
+        const checked = Array.from(document.querySelectorAll('input[name="weekday"]:checked')).map(cb => cb.value);
+        document.getElementById('daysHidden').value = checked.join(',');
+    });
+</script>
+{% endblock %}
