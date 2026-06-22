@@ -2,7 +2,6 @@
 chcp 65001 >nul 2>&1
 title BI工具箱 - 按 Ctrl+C 停止
 color 0A
-setlocal enabledelayedexpansion
 
 echo.
 echo  ╔══════════════════════════════════════════════════╗
@@ -18,53 +17,33 @@ REM ========================================
 echo  [1/6] 检测 Python 环境...
 set PYTHON_CMD=
 
-where python >nul 2>&1
-if %errorlevel%==0 (
-    for /f "delims=" %%i in ('python -c "import sys; print(sys.executable)"') do set PYTHON_CMD=%%i
-    goto :python_found
-)
+REM 依次检测常见 Python 路径
+if exist "D:\anaconda\python.exe" (set "PYTHON_CMD=D:\anaconda\python.exe" & goto :python_found)
+if exist "C:\Anaconda3\python.exe" (set "PYTHON_CMD=C:\Anaconda3\python.exe" & goto :python_found)
+if exist "%USERPROFILE%\Anaconda3\python.exe" (set "PYTHON_CMD=%USERPROFILE%\Anaconda3\python.exe" & goto :python_found)
+if exist "%USERPROFILE%\miniconda3\python.exe" (set "PYTHON_CMD=%USERPROFILE%\miniconda3\python.exe" & goto :python_found)
+if exist "C:\Python312\python.exe" (set "PYTHON_CMD=C:\Python312\python.exe" & goto :python_found)
+if exist "C:\Python311\python.exe" (set "PYTHON_CMD=C:\Python311\python.exe" & goto :python_found)
+if exist "C:\Python310\python.exe" (set "PYTHON_CMD=C:\Python310\python.exe" & goto :python_found)
+if exist "C:\Python39\python.exe" (set "PYTHON_CMD=C:\Python39\python.exe" & goto :python_found)
 
-where py >nul 2>&1
-if %errorlevel%==0 (
-    set PYTHON_CMD=py
-    goto :python_found
-)
+REM 最后尝试 PATH 中的 python/py
+python --version >nul 2>&1
+if %errorlevel%==0 (set "PYTHON_CMD=python" & goto :python_found)
 
-if exist "D:\anaconda\python.exe" (
-    set PYTHON_CMD=D:\anaconda\python.exe
-    goto :python_found
-)
-
-if exist "C:\Python39\python.exe" (
-    set PYTHON_CMD=C:\Python39\python.exe
-    goto :python_found
-)
-
-if exist "C:\Python310\python.exe" (
-    set PYTHON_CMD=C:\Python310\python.exe
-    goto :python_found
-)
-
-if exist "C:\Python311\python.exe" (
-    set PYTHON_CMD=C:\Python311\python.exe
-    goto :python_found
-)
-
-if exist "C:\Python312\python.exe" (
-    set PYTHON_CMD=C:\Python312\python.exe
-    goto :python_found
-)
+py --version >nul 2>&1
+if %errorlevel%==0 (set "PYTHON_CMD=py" & goto :python_found)
 
 echo  [错误] 未找到 Python！
-echo  请先安装 Python 3.7+ 下载地址：
-echo  https://www.python.org/downloads/
+echo  请先安装 Python 3.7+ 或 Anaconda
+echo  下载地址：https://www.python.org/downloads/
+echo  安装时请勾选 "Add Python to PATH"
 echo.
 pause
 exit /b 1
 
 :python_found
-for /f "delims=" %%v in ('%PYTHON_CMD% --version 2^>^&1') do set PY_VER=%%v
-echo  [√] 已找到 %PY_VER%: %PYTHON_CMD%
+echo  [√] 已找到 Python: %PYTHON_CMD%
 echo.
 
 REM ========================================
@@ -115,7 +94,6 @@ if %errorlevel%==0 (
     echo.
     echo      !! 重要安全提示 !!
     echo      请登录后立即修改默认密码！
-    echo      登录后点击右上角用户名 -> 修改密码
 ) else (
     echo  [√] 管理员账户已存在
 )
@@ -126,7 +104,6 @@ REM  [5/6] 启动后台服务（Redis/Celery）
 REM ========================================
 echo  [5/6] 启动后台服务...
 
-REM 检测 Redis
 set REDIS_OK=0
 tasklist /FI "IMAGENAME eq redis-server.exe" 2>NUL | find /I "redis-server.exe" >NUL
 if %errorlevel%==0 (
@@ -146,14 +123,11 @@ if %errorlevel%==0 (
 )
 
 if %REDIS_OK%==1 (
-    REM 启动 Celery Worker
     echo  [i] 正在启动 Celery Worker...
     start "Celery Worker" /MIN /D "%~dp0" %PYTHON_CMD% -m celery -A bi_toolkit worker -l info -f celery_worker.log --pool=threads --concurrency=4
 
-    REM 清理旧的 Celery Beat 调度文件
     del /Q "%~dp0celerybeat-schedule*" 2>nul
 
-    REM 启动 Celery Beat
     echo  [i] 正在启动 Celery Beat...
     start "Celery Beat" /MIN /D "%~dp0" %PYTHON_CMD% -m celery -A bi_toolkit beat -l info -f celery_beat.log
 
@@ -180,9 +154,7 @@ echo  ║  按 Ctrl+C 停止服务                              ║
 echo  ╚══════════════════════════════════════════════════╝
 echo.
 
-REM 延迟 3 秒后自动打开浏览器
 start "" cmd /c "timeout /t 3 >nul && start http://127.0.0.1:8000"
 
-REM 启动 Django（前台运行）
 %PYTHON_CMD% manage.py runserver 0.0.0.0:8000
 pause
