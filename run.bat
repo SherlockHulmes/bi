@@ -112,7 +112,10 @@ if %errorlevel%==0 (
     echo  [√] 管理员账户已创建
     echo      用户名: admin
     echo      密码:   admin123
-    echo      (请登录后修改密码！)
+    echo.
+    echo      !! 重要安全提示 !!
+    echo      请登录后立即修改默认密码！
+    echo      登录后点击右上角用户名 -> 修改密码
 ) else (
     echo  [√] 管理员账户已存在
 )
