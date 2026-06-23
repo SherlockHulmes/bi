@@ -248,7 +248,14 @@
 
     function renderChart(container, data) {
         var chartType = data.chart_type || 'bar';
-        var xField = data.x_axis_field || data.columns[0];
+        // 支持逗号分隔的多个X字段（拼接为标签）
+        var xFields = [];
+        if (data.x_axis_field && data.x_axis_field.trim()) {
+            xFields = data.x_axis_field.split(',').map(function(s){ return s.trim(); }).filter(function(s){ return s; });
+        }
+        if (xFields.length === 0) {
+            xFields = [data.columns[0]];
+        }
         // 支持逗号分隔的多个Y字段
         var yFields = [];
         if (data.y_axis_field && data.y_axis_field.trim()) {
@@ -258,8 +265,10 @@
             yFields = [data.columns.length > 1 ? data.columns[1] : data.columns[0]];
         }
 
-        // 提取数据
-        var labels = data.rows.map(function(r) { return r[xField] !== null ? r[xField] : ''; });
+        // 提取X轴标签（多字段拼接）
+        var labels = data.rows.map(function(r) {
+            return xFields.map(function(f) { return r[f] !== null ? r[f] : ''; }).join(' - ');
+        });
 
         // 清理旧图表
         var canvasId = 'chart_' + Math.random().toString(36).substr(2, 9);

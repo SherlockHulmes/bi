@@ -101,8 +101,8 @@ class DashboardCard(models.Model):
         ('doughnut', '环形图'),
         ('horizontal_bar', '横向柱状图'),
     ])
-    x_axis_field = models.CharField('X轴/标签字段', max_length=100, blank=True,
-                                    help_text='SQL查询结果中的列名，用作X轴或饼图标签')
+    x_axis_field = models.TextField('X轴/标签字段', blank=True,
+                                    help_text='SQL查询结果中的列名，支持逗号分隔多个字段（多个字段会拼接为标签），如：渠道类型,公司名称')
     y_axis_field = models.TextField('Y轴/数值字段', blank=True,
                                     help_text='SQL查询结果中的列名，支持逗号分隔多个字段，如：本金,利息。饼图只取第一个字段')
     sql_query = models.TextField('自定义SQL', blank=True,
