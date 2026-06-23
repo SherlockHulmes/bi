@@ -103,8 +103,8 @@ class DashboardCard(models.Model):
     ])
     x_axis_field = models.CharField('X轴/标签字段', max_length=100, blank=True,
                                     help_text='SQL查询结果中的列名，用作X轴或饼图标签')
-    y_axis_field = models.CharField('Y轴/数值字段', max_length=100, blank=True,
-                                    help_text='SQL查询结果中的列名，用作Y轴或饼图数值')
+    y_axis_field = models.TextField('Y轴/数值字段', blank=True,
+                                    help_text='SQL查询结果中的列名，支持逗号分隔多个字段，如：本金,利息。饼图只取第一个字段')
     sql_query = models.TextField('自定义SQL', blank=True,
                                  help_text='直接输入SQL（优先于关联的脚本）')
     sort_order = models.IntegerField('排序', default=0)

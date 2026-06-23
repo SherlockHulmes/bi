@@ -249,11 +249,17 @@
     function renderChart(container, data) {
         var chartType = data.chart_type || 'bar';
         var xField = data.x_axis_field || data.columns[0];
-        var yField = data.y_axis_field || (data.columns.length > 1 ? data.columns[1] : data.columns[0]);
+        // 支持逗号分隔的多个Y字段
+        var yFields = [];
+        if (data.y_axis_field && data.y_axis_field.trim()) {
+            yFields = data.y_axis_field.split(',').map(function(s){ return s.trim(); }).filter(function(s){ return s; });
+        }
+        if (yFields.length === 0) {
+            yFields = [data.columns.length > 1 ? data.columns[1] : data.columns[0]];
+        }
 
         // 提取数据
         var labels = data.rows.map(function(r) { return r[xField] !== null ? r[xField] : ''; });
-        var values = data.rows.map(function(r) { var v = r[yField]; return v !== null ? parseFloat(v) || 0 : 0; });
 
         // 清理旧图表
         var canvasId = 'chart_' + Math.random().toString(36).substr(2, 9);
@@ -266,6 +272,9 @@
 
         var config;
         if (chartType === 'pie' || chartType === 'doughnut') {
+            // 饼图只取第一个Y字段
+            var yField = yFields[0];
+            var values = data.rows.map(function(r) { var v = r[yField]; return v !== null ? parseFloat(v) || 0 : 0; });
             config = {
                 type: chartType,
                 data: {
@@ -279,22 +288,22 @@
                 options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
             };
         } else {
+            // 多Y字段生成多个dataset
+            var datasets = yFields.map(function(yField, idx) {
+                var values = data.rows.map(function(r) { var v = r[yField]; return v !== null ? parseFloat(v) || 0 : 0; });
+                if (chartType === 'bar' || chartType === 'horizontal_bar') {
+                    return { label: yField, data: values, backgroundColor: colors[idx % colors.length] + '99', borderColor: colors[idx % colors.length], borderWidth: 1 };
+                } else {
+                    return { label: yField, data: values, borderColor: colors[idx % colors.length], backgroundColor: colors[idx % colors.length] + '33', borderWidth: 2, fill: false, tension: 0.3 };
+                }
+            });
             config = {
                 type: chartType === 'horizontal_bar' ? 'bar' : chartType,
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: yField,
-                        data: values,
-                        backgroundColor: colors[0] + '99',
-                        borderColor: colors[0],
-                        borderWidth: 1
-                    }]
-                },
+                data: { labels: labels, datasets: datasets },
                 options: {
                     responsive: true,
                     indexAxis: chartType === 'horizontal_bar' ? 'y' : 'x',
-                    plugins: { legend: { display: false } },
+                    plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } },
                     scales: { y: { beginAtZero: true } }
                 }
             };
