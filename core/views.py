@@ -269,6 +269,9 @@ def dashboard_card_data(request, card_id):
             'rows': rows,
             'card_type': card.card_type,
             'title': card.title,
+            'chart_type': card.chart_type,
+            'x_axis_field': card.x_axis_field,
+            'y_axis_field': card.y_axis_field,
         })
     except Exception as e:
         logger.error(f"大屏卡片数据查询失败: card={card_id}, 错误: {e}")

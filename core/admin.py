@@ -24,8 +24,8 @@ class ExternalLinkAdmin(admin.ModelAdmin):
 
 @admin.register(DashboardCard)
 class DashboardCardAdmin(admin.ModelAdmin):
-    list_display = ('title', 'card_type', 'db_connection', 'refresh_interval', 'sort_order', 'is_active')
-    list_filter = ('is_active', 'card_type')
+    list_display = ('title', 'card_type', 'chart_type', 'db_connection', 'refresh_interval', 'sort_order', 'is_active')
+    list_filter = ('is_active', 'card_type', 'chart_type')
     list_editable = ('sort_order', 'is_active')
     search_fields = ('title', 'description')
     fieldsets = (
@@ -35,6 +35,11 @@ class DashboardCardAdmin(admin.ModelAdmin):
         ('数据源', {
             'fields': ('db_connection', 'sql_script', 'sql_query'),
             'description': '选择数据库连接，并关联SQL脚本或直接输入SQL'
+        }),
+        ('图表配置（仅图表类型有效）', {
+            'fields': ('chart_type', 'x_axis_field', 'y_axis_field'),
+            'classes': ('collapse',),
+            'description': '配置X轴/标签字段和Y轴/数值字段（对应SQL查询结果的列名）'
         }),
     )
 

@@ -94,6 +94,17 @@ class DashboardCard(models.Model):
         ('stat', '统计数字'),
         ('chart', '图表'),
     ])
+    chart_type = models.CharField('图表类型', max_length=20, default='bar', choices=[
+        ('bar', '柱状图'),
+        ('line', '折线图'),
+        ('pie', '饼图'),
+        ('doughnut', '环形图'),
+        ('horizontal_bar', '横向柱状图'),
+    ])
+    x_axis_field = models.CharField('X轴/标签字段', max_length=100, blank=True,
+                                    help_text='SQL查询结果中的列名，用作X轴或饼图标签')
+    y_axis_field = models.CharField('Y轴/数值字段', max_length=100, blank=True,
+                                    help_text='SQL查询结果中的列名，用作Y轴或饼图数值')
     sql_query = models.TextField('自定义SQL', blank=True,
                                  help_text='直接输入SQL（优先于关联的脚本）')
     sort_order = models.IntegerField('排序', default=0)
