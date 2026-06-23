@@ -195,6 +195,7 @@ var fieldAliases = {};   // {'alias.col': '自定义名'}
 var selectedDbName = ''; // 当前选择的数据库默认库名
 var currentTemplateId = null;   // 当前加载的模板ID（用于更新保存）
 var currentTemplateName = '';   // 当前加载的模板名称
+var parsedTableOrder = [];     // 从SQL解析时的表顺序，用于generateSQL确定主表
 
 // === 加载表列表 ===
 document.getElementById('dbSelect').addEventListener('change', function() {
@@ -361,7 +362,7 @@ function handleFieldClick(tableName, fieldName, event) {
             (c.from === fromKey && c.to === toKey) || (c.from === toKey && c.to === fromKey)
         );
         if (!exists && connectingFrom.table !== tableName) {
-            canvasConnections.push({from: fromKey, to: toKey});
+            canvasConnections.push({from: fromKey, to: toKey, joinType: 'JOIN', extraConds: []});
         }
         connectingFrom = null;
         renderCanvas();
@@ -434,16 +435,34 @@ function updateConnList() {
     }
     var html = '';
     canvasConnections.forEach(function(conn, idx) {
-        html += '<span class="qb-tag conn-tag"><i class="bi bi-link-45deg"></i> ' + conn.from + ' = ' + conn.to;
+        var jt = conn.joinType || 'JOIN';
+        html += '<span class="qb-tag conn-tag">';
+        html += '<select class="form-select form-select-sm" style="width:auto;font-size:0.7rem;padding:0 4px;display:inline-block;" onchange="canvasConnections[' + idx + '].joinType=this.value;">';
+        html += '<option value="JOIN"' + (jt === 'JOIN' ? ' selected' : '') + '>JOIN</option>';
+        html += '<option value="LEFT JOIN"' + (jt === 'LEFT JOIN' ? ' selected' : '') + '>LEFT JOIN</option>';
+        html += '<option value="RIGHT JOIN"' + (jt === 'RIGHT JOIN' ? ' selected' : '') + '>RIGHT JOIN</option>';
+        html += '<option value="INNER JOIN"' + (jt === 'INNER JOIN' ? ' selected' : '') + '>INNER JOIN</option>';
+        html += '</select> ';
+        html += '<i class="bi bi-link-45deg"></i> ' + conn.from + ' = ' + conn.to;
         // 显示额外连接条件
         if (conn.extraConds && conn.extraConds.length) {
             conn.extraConds.forEach(function(ec) {
-                html += ' <span style="color:#b45309;">AND ' + ec + '</span>';
+                html += ' <span style="color:#b45309;font-size:0.75rem;">AND ' + ec + '</span>';
             });
         }
+        html += ' <span style="cursor:pointer;color:#3b82f6;font-size:0.7rem;" title="添加ON条件" onclick="addExtraConnCond(' + idx + ')"><i class="bi bi-plus-circle"></i></span>';
         html += ' <span class="qb-remove" onclick="removeConnection(' + idx + ')">&times;</span></span>';
     });
     container.innerHTML = html;
+}
+
+function addExtraConnCond(idx) {
+    var cond = prompt('输入额外ON条件，例如: s2.dict_type = \'AGENCY_TYPE\'');
+    if (cond && cond.trim()) {
+        if (!canvasConnections[idx].extraConds) canvasConnections[idx].extraConds = [];
+        canvasConnections[idx].extraConds.push(cond.trim());
+        renderCanvas();
+    }
 }
 
 // === 条件构建器 ===
@@ -529,7 +548,8 @@ function buildSorts() {
 
 // === SQL生成 ===
 function generateSQL() {
-    var tables = Object.keys(canvasTables);
+    // 使用解析时的表顺序（如果有），否则用Object.keys
+    var tables = parsedTableOrder.length ? parsedTableOrder.filter(function(t){ return canvasTables[t]; }) : Object.keys(canvasTables);
     if (!tables.length) return '';
 
     var fields = [];
@@ -546,8 +566,9 @@ function generateSQL() {
         fields.push(firstAlias + '.*');
     }
 
-    // 构建表引用：如果表的数据库与当前连接默认库不同，则加 db. 前缀
+    // 构建表引用：如果表名已包含schema前缀则原样返回，否则根据dbName添加
     function tableRef(tableName) {
+        if (tableName.indexOf('.') >= 0) return tableName;
         var td = canvasTables[tableName];
         var db = td.dbName || '';
         if (db && db !== selectedDbName) {
@@ -591,8 +612,8 @@ function generateSQL() {
         var rightTable = aliasToTable[rightAlias];
         if (rightTable) {
             joinedAliases.add(rightAlias);
-            var jt = (canvasTables[rightTable] && canvasTables[rightTable].joinType) ? canvasTables[rightTable].joinType : '';
-            var joinPrefix = jt ? (jt + ' JOIN') : 'JOIN';
+            var jt = conn.joinType || '';
+            var joinPrefix = jt ? jt : 'JOIN';
             var onClause = leftAlias + '.' + leftCol + ' = ' + rightAlias + '.' + rightCol;
             // 添加额外连接条件
             if (conn.extraConds && conn.extraConds.length) {
@@ -883,7 +904,16 @@ function restoreVisualState(vs, dbId) {
     var total = tablesToLoad.length;
     tablesToLoad.forEach(function(tName) {
         var savedTable = vs.canvasTables[tName];
-        fetch('/data-extract/api/columns/?db_id=' + db_id + '&table=' + encodeURIComponent(tName))
+        // 处理schema前缀
+        var schemaName = savedTable.dbName || '';
+        var apiTableName = tName;
+        if (tName.indexOf('.') >= 0) {
+            var parts = tName.split('.');
+            if (!schemaName) schemaName = parts[0];
+            apiTableName = parts.slice(1).join('.');
+        }
+        var useDbId = findDbIdBySchema(schemaName) || db_id;
+        fetch('/data-extract/api/columns/?db_id=' + useDbId + '&table=' + encodeURIComponent(apiTableName))
             .then(r => r.json())
             .then(data => {
                 loaded++;
@@ -923,6 +953,21 @@ function restoreVisualState(vs, dbId) {
     });
 }
 
+// === 根据schema名查找数据库连接ID ===
+function findDbIdBySchema(schemaName) {
+    if (!schemaName) return null;
+    var select = document.getElementById('dbSelect');
+    for (var i = 0; i < select.options.length; i++) {
+        var optText = select.options[i].text.toLowerCase();
+        // 选项格式: "连接名 (数据库名)"
+        var match = optText.match(/\(([^)]+)\)/);
+        if (match && match[1].toLowerCase() === schemaName.toLowerCase()) {
+            return select.options[i].value;
+        }
+    }
+    return null;
+}
+
 // === 尝试从SQL解析到可视化 ===
 function tryParseSQLToVisual(sql, dbId, callback) {
     var db_id = dbId || document.getElementById('dbSelect').value || document.getElementById('sqlDbSelect').value;
@@ -947,16 +992,24 @@ function tryParseSQLToVisual(sql, dbId, callback) {
     parsed.tables.forEach(function(t, idx) {
         var tableName = t.name;
         var tableAlias = t.alias;
-        // 去掉 schema 前缀（如 gdcd.agency_info → agency_info）
-        var apiTableName = tableName.indexOf('.') >= 0 ? tableName.split('.').pop() : tableName;
-        fetch('/data-extract/api/columns/?db_id=' + db_id + '&table=' + encodeURIComponent(apiTableName))
+        // 解析 schema 前缀（如 gdbi.dwd_event_car_loan_apply_mast → gdbi）
+        var schemaName = '';
+        var apiTableName = tableName;
+        if (tableName.indexOf('.') >= 0) {
+            var parts = tableName.split('.');
+            schemaName = parts[0];
+            apiTableName = parts.slice(1).join('.');
+        }
+        // 查找该schema对应的数据库连接ID
+        var useDbId = findDbIdBySchema(schemaName) || db_id;
+        fetch('/data-extract/api/columns/?db_id=' + useDbId + '&table=' + encodeURIComponent(apiTableName))
             .then(r => r.json())
             .then(data => {
                 loaded++;
                 if (!data.error) {
                     canvasTables[tableName] = {
                         alias: tableAlias,
-                        dbName: '',
+                        dbName: schemaName,
                         x: 80 + (idx % 3) * 260,
                         y: 60 + Math.floor(idx / 3) * 220,
                         columns: data.columns,
@@ -1083,7 +1136,7 @@ function parseSimpleSQL(sql) {
             cp = cp.replace(/IS__NULL/g, 'IS NULL');
             cp = cp.replace(/NOT__IN/g, 'NOT IN');
             // 解析 field op value
-            var cm = cp.match(/(\w+\.\w+)\s*(=|!=|>|<|>=|<=|IN|NOT IN|LIKE|IS NULL|IS NOT NULL)\s*(.*)?/i);
+            var cm = cp.match(/(\w+\.\w+)\s*(>=|<=|!=|>|<|=|IN|NOT IN|LIKE|IS NULL|IS NOT NULL)\s*(.*)?/i);
             if (cm) {
                 var val = (cm[3] || '').trim().replace(/^['"]|['"]$/g, '');
                 result.conditions.push({ field: cm[1], op: cm[2].toUpperCase(), value: val, logic: currentLogic });
@@ -1133,15 +1186,35 @@ function splitTopLevel(str, sep) {
 
 // 将解析结果应用到画布
 function applyParsedSQLToCanvas(parsed) {
+    // 记录表顺序
+    parsedTableOrder = [];
+    if (parsed.tables) {
+        parsed.tables.forEach(function(t) { parsedTableOrder.push(t.name); });
+    }
+
     // 恢复连接
     canvasConnections = parsed.connections || [];
 
-    // 恢复JOIN类型到canvasTables
-    parsed.tables.forEach(function(t) {
-        if (t.joinType && canvasTables[t.name]) {
-            canvasTables[t.name].joinType = t.joinType;
-        }
-    });
+    // 恢复JOIN类型到connections
+    if (parsed.tables) {
+        var tableJoinTypes = {};
+        parsed.tables.forEach(function(t) {
+            if (t.joinType) tableJoinTypes[t.name] = t.joinType;
+        });
+        canvasConnections.forEach(function(conn) {
+            // 根据连接中的表别名找到对应的JOIN类型
+            Object.keys(canvasTables).forEach(function(tName) {
+                if (canvasTables[tName].alias === conn.from.split('.')[0] ||
+                    canvasTables[tName].alias === conn.to.split('.')[0]) {
+                    if (tableJoinTypes[tName]) {
+                        conn.joinType = tableJoinTypes[tName];
+                    }
+                }
+            });
+            if (!conn.joinType) conn.joinType = 'JOIN';
+            if (!conn.extraConds) conn.extraConds = [];
+        });
+    }
 
     // 恢复字段选择
     parsed.fields.forEach(function(f) {
