@@ -108,6 +108,11 @@
                 <button class="btn btn-outline-primary btn-sm" onclick="addSort()" style="flex-shrink:0;"><i class="bi bi-plus"></i></button>
             </div>
             <div class="qb-section">
+                <span class="qb-label">选项</span>
+                <div class="form-check form-check-inline me-3">
+                    <input class="form-check-input" type="checkbox" id="distinctCheck">
+                    <label class="form-check-label" for="distinctCheck" style="font-size:0.85rem;">DISTINCT 去重</label>
+                </div>
                 <span class="qb-label">限制条数</span>
                 <input type="number" class="form-control form-control-sm" id="limitInput" value="100" min="1" max="10000" style="width:100px;">
                 <button class="btn btn-primary btn-sm" onclick="executeQuery()"><i class="bi bi-play-fill"></i> 执行查询</button>
@@ -179,8 +184,9 @@
 {% block extra_js %}
 <script>
 var CSRF_TOKEN = '{{ csrf_token }}';
-var canvasTables = {};   // {tableName: {alias, dbName, x, y, columns:[], selected:[]}}
-var canvasConnections = []; // [{from:'alias.col', to:'alias.col'}]
+var canvasTables = {};   // {tableName: {alias, dbName, x, y, columns:[], selected:[], joinType:'LEFT'}}
+var canvasConnections = []; // [{from:'alias.col', to:'alias.col', extraConds:['s2.dict_type = AGENCY_TYPE']}]}
+var useDistinct = false; // DISTINCT 开关
 var connectingFrom = null;
 var lastResult = null;
 var conditions = [];     // [{field:'alias.col', op:'=', value:'xxx', logic:'AND'}]
@@ -545,7 +551,8 @@ function generateSQL() {
     }
 
     var firstAlias = canvasTables[tables[0]].alias;
-    var sql = 'SELECT ' + fields.join(', ') + '\nFROM ' + tableRef(tables[0]) + ' AS ' + firstAlias;
+    var distinctStr = document.getElementById('distinctCheck').checked ? ' DISTINCT ' : ' ';
+    var sql = 'SELECT' + distinctStr + fields.join(', ') + '\nFROM ' + tableRef(tables[0]) + ' AS ' + firstAlias;
 
     // 建立 alias → tableName 映射
     var aliasToTable = {};
@@ -578,7 +585,14 @@ function generateSQL() {
         var rightTable = aliasToTable[rightAlias];
         if (rightTable) {
             joinedAliases.add(rightAlias);
-            sql += '\nJOIN ' + tableRef(rightTable) + ' AS ' + rightAlias + ' ON ' + leftAlias + '.' + leftCol + ' = ' + rightAlias + '.' + rightCol;
+            var jt = (canvasTables[rightTable] && canvasTables[rightTable].joinType) ? canvasTables[rightTable].joinType : '';
+            var joinPrefix = jt ? (jt + ' JOIN') : 'JOIN';
+            var onClause = leftAlias + '.' + leftCol + ' = ' + rightAlias + '.' + rightCol;
+            // 添加额外连接条件
+            if (conn.extraConds && conn.extraConds.length) {
+                conn.extraConds.forEach(function(ec) { onClause += ' AND ' + ec; });
+            }
+            sql += '\n' + joinPrefix + ' ' + tableRef(rightTable) + ' AS ' + rightAlias + ' ON ' + onClause;
         }
     });
     tables.forEach(function(t) {
@@ -682,15 +696,19 @@ function switchToSqlMode() {
     if (dbId) document.getElementById('sqlDbSelect').value = dbId;
 }
 
+var _isSwitching = false; // 防止递归
+
 function switchToVisualMode() {
+    if (_isSwitching) return;
     document.getElementById('sqlModePanel').style.display = 'none';
     document.querySelector('.canvas-area').style.display = '';
     document.querySelector('.query-bar').style.display = '';
     // 始终从SQL编辑器重新解析到可视化
     var sql = document.getElementById('sqlEditor').value.trim();
     if (sql) {
+        _isSwitching = true;
         var dbId = document.getElementById('sqlDbSelect').value || document.getElementById('dbSelect').value;
-        tryParseSQLToVisual(sql, dbId);
+        tryParseSQLToVisual(sql, dbId, function() { _isSwitching = false; });
     }
 }
 
@@ -900,7 +918,7 @@ function restoreVisualState(vs, dbId) {
 }
 
 // === 尝试从SQL解析到可视化 ===
-function tryParseSQLToVisual(sql, dbId) {
+function tryParseSQLToVisual(sql, dbId, callback) {
     var db_id = dbId || document.getElementById('dbSelect').value || document.getElementById('sqlDbSelect').value;
     if (!db_id) {
         // 无数据库连接，只能用SQL模式
@@ -939,14 +957,20 @@ function tryParseSQLToVisual(sql, dbId) {
                 }
                 if (loaded >= total) {
                     applyParsedSQLToCanvas(parsed);
-                    switchToVisualMode();
+                    renderCanvas();
+                    rebuildConditionUI();
+                    rebuildSortUI();
+                    if (callback) callback();
                 }
             })
             .catch(function() {
                 loaded++;
                 if (loaded >= total) {
                     applyParsedSQLToCanvas(parsed);
-                    switchToVisualMode();
+                    renderCanvas();
+                    rebuildConditionUI();
+                    rebuildSortUI();
+                    if (callback) callback();
                 }
             });
     });
@@ -976,21 +1000,34 @@ function parseSimpleSQL(sql) {
     }
 
     // 提取 JOIN 表（支持 LEFT JOIN, RIGHT JOIN, INNER JOIN, CROSS JOIN 等）
-    var joinRegex = /(?:LEFT\s+|RIGHT\s+|INNER\s+|OUTER\s+|CROSS\s+)?JOIN\s+(\S+)(?:\s+(?:AS\s+)?(\w+))?\s+ON\s+(.+?)(?=\s+(?:LEFT\s+|RIGHT\s+|INNER\s+|OUTER\s+|CROSS\s+)?JOIN\s|\s+WHERE|\s+ORDER|\s+GROUP|\s+LIMIT|\s*$)/gi;
+    var joinRegex = /((?:LEFT\s+|RIGHT\s+|INNER\s+|OUTER\s+|CROSS\s+)?)JOIN\s+(\S+)(?:\s+(?:AS\s+)?(\w+))?\s+ON\s+(.+?)(?=\s+(?:LEFT\s+|RIGHT\s+|INNER\s+|OUTER\s+|CROSS\s+)?JOIN\s|\s+WHERE|\s+ORDER|\s+GROUP|\s+LIMIT|\s*$)/gi;
     var joinMatch;
     while ((joinMatch = joinRegex.exec(fromPart)) !== null) {
-        var jName = joinMatch[1].replace(/[`"]/g, '');
-        var jAlias = joinMatch[2] || jName;
-        result.tables.push({ name: jName, alias: jAlias });
-        // 解析 ON 条件作为连接
-        var onClause = joinMatch[3].trim();
+        var joinTypeStr = (joinMatch[1] || '').trim().toUpperCase().replace(/\s+/g, ' ');
+        var jName = joinMatch[2].replace(/[`"]/g, '');
+        var jAlias = joinMatch[3] || jName;
+        result.tables.push({ name: jName, alias: jAlias, joinType: joinTypeStr });
+        // 解析 ON 条件
+        var onClause = joinMatch[4].trim();
         var onParts = onClause.split(/\s+AND\s+/i);
+        var connEntry = null;
         onParts.forEach(function(part) {
             var m = part.match(/(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)/);
             if (m) {
-                result.connections.push({ from: m[1] + '.' + m[2], to: m[3] + '.' + m[4] });
+                connEntry = { from: m[1] + '.' + m[2], to: m[3] + '.' + m[4], extraConds: [] };
             }
         });
+        // 收集非列等式的额外条件
+        if (connEntry) {
+            onParts.forEach(function(part) {
+                var m = part.match(/(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)/);
+                if (!m) {
+                    part = part.trim();
+                    if (part) connEntry.extraConds.push(part);
+                }
+            });
+            result.connections.push(connEntry);
+        }
     }
 
     // 解析 SELECT 字段（处理 DISTINCT）
@@ -1089,6 +1126,13 @@ function splitTopLevel(str, sep) {
 function applyParsedSQLToCanvas(parsed) {
     // 恢复连接
     canvasConnections = parsed.connections || [];
+
+    // 恢复JOIN类型到canvasTables
+    parsed.tables.forEach(function(t) {
+        if (t.joinType && canvasTables[t.name]) {
+            canvasTables[t.name].joinType = t.joinType;
+        }
+    });
 
     // 恢复字段选择
     parsed.fields.forEach(function(f) {
