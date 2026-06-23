@@ -599,34 +599,30 @@ function getAllFields() {
     return fields;
 }
 
+function buildDatalistOptions() {
+    var html = '';
+    getAllFields().forEach(function(f) { html += '<option value="' + f + '">'; });
+    return html;
+}
+
 function updateCondFieldOptions() {
-    var allFields = getAllFields();
-    document.querySelectorAll('.cond-field-select').forEach(function(sel) {
-        var current = sel.value;
-        var html = '<option value="">选择字段</option>';
-        allFields.forEach(function(f) { html += '<option value="' + f + '"' + (f === current ? ' selected' : '') + '>' + f + '</option>'; });
-        sel.innerHTML = html;
+    var opts = buildDatalistOptions();
+    document.querySelectorAll('.cond-row datalist').forEach(function(dl) {
+        dl.innerHTML = opts;
     });
-    document.querySelectorAll('.sort-field-select').forEach(function(sel) {
-        var current = sel.value;
-        var html = '<option value="">选择字段</option>';
-        allFields.forEach(function(f) { html += '<option value="' + f + '"' + (f === current ? ' selected' : '') + '>' + f + '</option>'; });
-        sel.innerHTML = html;
+    document.querySelectorAll('.sort-row datalist').forEach(function(dl) {
+        dl.innerHTML = opts;
     });
 }
 
 function addCondition() {
-    var allFields = getAllFields();
-    var opts = '<option value="">选择字段</option>';
-    allFields.forEach(function(f) { opts += '<option value="' + f + '">' + f + '</option>'; });
     var ops = ['=', '!=', '>', '<', '>=', '<=', 'IN', 'NOT IN', 'LIKE', 'IS NULL', 'IS NOT NULL'];
     var opOpts = '';
     ops.forEach(function(o) { opOpts += '<option value="' + o + '">' + o + '</option>'; });
-    var searchId = 'condSearch_' + Date.now();
-    var selId = 'condSel_' + Date.now();
+    var uid = 'c_' + Date.now();
     var html = '<div class="cond-row">'
-        + '<input type="text" class="field-search" id="' + searchId + '" placeholder="搜索字段..." oninput="filterFieldSelect(\'' + selId + '\', this.value)">'
-        + '<select class="form-select form-select-sm cond-field-select" id="' + selId + '" style="width:150px;">' + opts + '</select>'
+        + '<input type="text" class="form-control form-control-sm cond-field-input" list="dl_' + uid + '" placeholder="输入或选择字段..." style="width:160px;">'
+        + '<datalist id="dl_' + uid + '">' + buildDatalistOptions() + '</datalist>'
         + '<select class="form-select form-select-sm cond-op-select" style="width:110px;">' + opOpts + '</select>'
         + '<input type="text" class="form-control form-control-sm cond-value-input" placeholder="值" style="width:140px;">'
         + '<select class="form-select form-select-sm cond-logic-select" style="width:70px;"><option value="AND">AND</option><option value="OR">OR</option></select>'
@@ -655,11 +651,10 @@ function filterFieldSelect(selId, kw) {
 }
 
 function addSort() {
-    var allFields = getAllFields();
-    var opts = '<option value="">选择字段</option>';
-    allFields.forEach(function(f) { opts += '<option value="' + f + '">' + f + '</option>'; });
+    var uid = 's_' + Date.now();
     var html = '<div class="sort-row">'
-        + '<select class="form-select form-select-sm sort-field-select" style="width:150px;">' + opts + '</select>'
+        + '<input type="text" class="form-control form-control-sm sort-field-input" list="dl_' + uid + '" placeholder="输入或选择字段..." style="width:160px;">'
+        + '<datalist id="dl_' + uid + '">' + buildDatalistOptions() + '</datalist>'
         + '<select class="form-select form-select-sm sort-dir-select" style="width:80px;"><option value="ASC">升序</option><option value="DESC">降序</option></select>'
         + '<button class="btn btn-outline-danger btn-sm" onclick="this.parentElement.remove();"><i class="bi bi-x"></i></button>'
         + '</div>';
@@ -671,7 +666,8 @@ function addSort() {
 function buildConditions() {
     conditions = [];
     document.querySelectorAll('.cond-row').forEach(function(row) {
-        var field = row.querySelector('.cond-field-select').value;
+        var fieldEl = row.querySelector('.cond-field-input') || row.querySelector('.cond-field-select');
+        var field = fieldEl ? fieldEl.value : '';
         var op = row.querySelector('.cond-op-select').value;
         var value = row.querySelector('.cond-value-input').value.trim();
         var logic = row.querySelector('.cond-logic-select').value;
@@ -682,7 +678,8 @@ function buildConditions() {
 function buildSorts() {
     sorts = [];
     document.querySelectorAll('.sort-row').forEach(function(row) {
-        var field = row.querySelector('.sort-field-select').value;
+        var fieldEl = row.querySelector('.sort-field-input') || row.querySelector('.sort-field-select');
+        var field = fieldEl ? fieldEl.value : '';
         var dir = row.querySelector('.sort-dir-select').value;
         if (field) sorts.push({field: field, dir: dir});
     });
@@ -1116,12 +1113,12 @@ function applyParsedSQLToCanvas(parsed) {
 
 function rebuildConditionUI() {
     document.getElementById('condContainer').innerHTML = '';
-    conditions.forEach(function(c) { addCondition(); var rows = document.querySelectorAll('.cond-row'); var row = rows[rows.length-1]; row.querySelector('.cond-field-select').value = c.field; row.querySelector('.cond-op-select').value = c.op; row.querySelector('.cond-value-input').value = c.value||''; row.querySelector('.cond-logic-select').value = c.logic||'AND'; });
+    conditions.forEach(function(c) { addCondition(); var rows = document.querySelectorAll('.cond-row'); var row = rows[rows.length-1]; var fieldEl = row.querySelector('.cond-field-input') || row.querySelector('.cond-field-select'); if(fieldEl) fieldEl.value = c.field; row.querySelector('.cond-op-select').value = c.op; row.querySelector('.cond-value-input').value = c.value||''; row.querySelector('.cond-logic-select').value = c.logic||'AND'; });
 }
 
 function rebuildSortUI() {
     document.getElementById('sortContainer').innerHTML = '';
-    sorts.forEach(function(s) { addSort(); var rows = document.querySelectorAll('.sort-row'); var row = rows[rows.length-1]; row.querySelector('.sort-field-select').value = s.field; row.querySelector('.sort-dir-select').value = s.dir; });
+    sorts.forEach(function(s) { addSort(); var rows = document.querySelectorAll('.sort-row'); var row = rows[rows.length-1]; var fieldEl = row.querySelector('.sort-field-input') || row.querySelector('.sort-field-select'); if(fieldEl) fieldEl.value = s.field; row.querySelector('.sort-dir-select').value = s.dir; });
 }
 
 function switchToSqlModeWithSQL(sql) {
