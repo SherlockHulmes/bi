@@ -22,6 +22,9 @@
     .canvas-table .ct-close { cursor: pointer; opacity: 0.7; }
     .canvas-table .ct-close:hover { opacity: 1; }
     .canvas-table .ct-fields { padding: 4px 0; max-height: 200px; overflow-y: auto; }
+    .canvas-table .ct-search { padding: 4px 8px; border-bottom: 1px solid #e2e8f0; }
+    .canvas-table .ct-search input { width: 100%; border: 1px solid #e2e8f0; border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; }
+    .canvas-table .ct-search input:focus { border-color: #3b82f6; outline: none; }
     .canvas-table .ct-field { padding: 3px 12px; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 4px; }
     .canvas-table .ct-field:hover { background: #f0f9ff; }
     .canvas-table .ct-field.selected { background: #dbeafe; font-weight: 500; }
@@ -399,7 +402,9 @@ function renderCanvas() {
             + '</div>'
             + '<span class="ct-close" onclick="removeTable(\'' + tName + '\')">&times;</span></div>';
 
-        var fields = '<div class="ct-fields">';
+        var searchId = 'fieldSearch_' + tName.replace(/[^a-zA-Z0-9]/g, '_');
+        var fields = '<div class="ct-search"><input type="text" id="' + searchId + '" placeholder="搜索字段..." oninput="filterCanvasFields(\'' + tName + '\', this.value)"></div>';
+        fields += '<div class="ct-fields" id="fields_' + tName.replace(/[^a-zA-Z0-9]/g, '_') + '">';
         t.columns.forEach(function(col) {
             var isSelected = t.selected.indexOf(col.name) >= 0;
             var connClass = isFieldConnected(tName, col.name) ? ' connected' : '';
@@ -435,6 +440,20 @@ function renderCanvas() {
         canvas.appendChild(div);
     });
     updateSelectedFields();
+}
+
+function filterCanvasFields(tableName, kw) {
+    var t = canvasTables[tableName];
+    if (!t) return;
+    var safeName = tableName.replace(/[^a-zA-Z0-9]/g, '_');
+    var container = document.getElementById('fields_' + safeName);
+    if (!container) return;
+    kw = kw.toLowerCase();
+    var divs = container.querySelectorAll('.ct-field');
+    divs.forEach(function(div) {
+        var text = div.textContent.toLowerCase();
+        div.style.display = (!kw || text.indexOf(kw) >= 0) ? '' : 'none';
+    });
 }
 
 function removeTable(name) {
@@ -622,10 +641,17 @@ function filterFieldSelect(selId, kw) {
     var sel = document.getElementById(selId);
     if (!sel) return;
     kw = kw.toLowerCase();
-    for (var i = 0; i < sel.options.length; i++) {
-        var opt = sel.options[i];
-        opt.style.display = (!kw || opt.text.toLowerCase().indexOf(kw) >= 0) ? '' : 'none';
-    }
+    // 保存当前选中值
+    var currentVal = sel.value;
+    // 重建选项列表
+    var allFields = getAllFields();
+    var html = '<option value="">选择字段</option>';
+    allFields.forEach(function(f) {
+        if (!kw || f.toLowerCase().indexOf(kw) >= 0) {
+            html += '<option value="' + f + '"' + (f === currentVal ? ' selected' : '') + '>' + f + '</option>';
+        }
+    });
+    sel.innerHTML = html;
 }
 
 function addSort() {
