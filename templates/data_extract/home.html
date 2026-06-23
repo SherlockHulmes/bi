@@ -686,13 +686,11 @@ function switchToVisualMode() {
     document.getElementById('sqlModePanel').style.display = 'none';
     document.querySelector('.canvas-area').style.display = '';
     document.querySelector('.query-bar').style.display = '';
-    // 如果画布为空，尝试从SQL编辑器中的SQL解析回可视化
-    if (Object.keys(canvasTables).length === 0) {
-        var sql = document.getElementById('sqlEditor').value.trim();
-        if (sql) {
-            var dbId = document.getElementById('sqlDbSelect').value || document.getElementById('dbSelect').value;
-            tryParseSQLToVisual(sql, dbId);
-        }
+    // 始终从SQL编辑器重新解析到可视化
+    var sql = document.getElementById('sqlEditor').value.trim();
+    if (sql) {
+        var dbId = document.getElementById('sqlDbSelect').value || document.getElementById('dbSelect').value;
+        tryParseSQLToVisual(sql, dbId);
     }
 }
 
@@ -958,6 +956,9 @@ function tryParseSQLToVisual(sql, dbId) {
 function parseSimpleSQL(sql) {
     var result = { tables: [], fields: [], connections: [], conditions: [], sorts: [], limit: null };
 
+    // 去掉SQL注释（-- 单行注释 和 /* */ 块注释）
+    sql = sql.replace(/--[^\n]*/g, '');
+    sql = sql.replace(/\/\*[\s\S]*?\*\//g, '');
     // 去掉多余空白和换行
     sql = sql.replace(/\s+/g, ' ').trim();
 
@@ -974,8 +975,8 @@ function parseSimpleSQL(sql) {
         result.tables.push({ name: mainName, alias: mainAlias });
     }
 
-    // 提取 JOIN 表
-    var joinRegex = /JOIN\s+(\S+)(?:\s+(?:AS\s+)?(\w+))?\s+ON\s+(.+?)(?=\s+JOIN|\s+WHERE|\s+ORDER|\s+GROUP|\s+LIMIT|\s*$)/gi;
+    // 提取 JOIN 表（支持 LEFT JOIN, RIGHT JOIN, INNER JOIN, CROSS JOIN 等）
+    var joinRegex = /(?:LEFT\s+|RIGHT\s+|INNER\s+|OUTER\s+|CROSS\s+)?JOIN\s+(\S+)(?:\s+(?:AS\s+)?(\w+))?\s+ON\s+(.+?)(?=\s+(?:LEFT\s+|RIGHT\s+|INNER\s+|OUTER\s+|CROSS\s+)?JOIN\s|\s+WHERE|\s+ORDER|\s+GROUP|\s+LIMIT|\s*$)/gi;
     var joinMatch;
     while ((joinMatch = joinRegex.exec(fromPart)) !== null) {
         var jName = joinMatch[1].replace(/[`"]/g, '');
@@ -992,10 +993,10 @@ function parseSimpleSQL(sql) {
         });
     }
 
-    // 解析 SELECT 字段
-    var selectMatch = sql.match(/SELECT\s+(.+?)\s+FROM\s/i);
+    // 解析 SELECT 字段（处理 DISTINCT）
+    var selectMatch = sql.match(/SELECT\s+(DISTINCT\s+)?(.+?)\s+FROM\s/i);
     if (selectMatch) {
-        var fieldStr = selectMatch[1];
+        var fieldStr = selectMatch[2];
         var fieldParts = splitTopLevel(fieldStr, ',');
         fieldParts.forEach(function(fp) {
             fp = fp.trim();
@@ -1003,6 +1004,8 @@ function parseSimpleSQL(sql) {
             var asMatch = fp.match(/(.+?)\s+AS\s+[`"]?([^`"' ]+)[`"]?$/i);
             var fieldRef = asMatch ? asMatch[1].trim() : fp;
             var displayAlias = asMatch ? asMatch[2] : '';
+            // 去掉 DISTINCT 关键字
+            fieldRef = fieldRef.replace(/^DISTINCT\s+/i, '');
             var dotMatch = fieldRef.match(/^(\w+)\.(\w+)$/);
             if (dotMatch) {
                 result.fields.push({ tableAlias: dotMatch[1], column: dotMatch[2], displayAlias: displayAlias });
@@ -1012,11 +1015,15 @@ function parseSimpleSQL(sql) {
         });
     }
 
-    // 解析 WHERE
+    // 解析 WHERE（先处理 IS [NOT] NULL，再处理 AND/OR 拆分）
     var whereMatch = sql.match(/WHERE\s+(.+?)(?:\s+ORDER|\s+GROUP|\s+LIMIT|\s*$)/i);
     if (whereMatch) {
         var whereStr = whereMatch[1].trim();
-        // 简单拆分 AND/OR
+        // 先用占位符保护 IS NOT NULL / IS NULL 中的关键字
+        whereStr = whereStr.replace(/\bIS\s+NOT\s+NULL\b/gi, 'IS__NOT__NULL');
+        whereStr = whereStr.replace(/\bIS\s+NULL\b/gi, 'IS__NULL');
+        whereStr = whereStr.replace(/\bNOT\s+IN\b/gi, 'NOT__IN');
+        // 拆分 AND/OR
         var condParts = whereStr.split(/\s+(AND|OR)\s+/i);
         var currentLogic = 'AND';
         condParts.forEach(function(cp) {
@@ -1025,6 +1032,10 @@ function parseSimpleSQL(sql) {
                 currentLogic = cp.toUpperCase();
                 return;
             }
+            // 恢复占位符
+            cp = cp.replace(/IS__NOT__NULL/g, 'IS NOT NULL');
+            cp = cp.replace(/IS__NULL/g, 'IS NULL');
+            cp = cp.replace(/NOT__IN/g, 'NOT IN');
             // 解析 field op value
             var cm = cp.match(/(\w+\.\w+)\s*(=|!=|>|<|>=|<=|IN|NOT IN|LIKE|IS NULL|IS NOT NULL)\s*(.*)?/i);
             if (cm) {
