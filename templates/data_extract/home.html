@@ -435,6 +435,12 @@ function updateConnList() {
     var html = '';
     canvasConnections.forEach(function(conn, idx) {
         html += '<span class="qb-tag conn-tag"><i class="bi bi-link-45deg"></i> ' + conn.from + ' = ' + conn.to;
+        // 显示额外连接条件
+        if (conn.extraConds && conn.extraConds.length) {
+            conn.extraConds.forEach(function(ec) {
+                html += ' <span style="color:#b45309;">AND ' + ec + '</span>';
+            });
+        }
         html += ' <span class="qb-remove" onclick="removeConnection(' + idx + ')">&times;</span></span>';
     });
     container.innerHTML = html;
@@ -941,7 +947,9 @@ function tryParseSQLToVisual(sql, dbId, callback) {
     parsed.tables.forEach(function(t, idx) {
         var tableName = t.name;
         var tableAlias = t.alias;
-        fetch('/data-extract/api/columns/?db_id=' + db_id + '&table=' + encodeURIComponent(tableName))
+        // 去掉 schema 前缀（如 gdcd.agency_info → agency_info）
+        var apiTableName = tableName.indexOf('.') >= 0 ? tableName.split('.').pop() : tableName;
+        fetch('/data-extract/api/columns/?db_id=' + db_id + '&table=' + encodeURIComponent(apiTableName))
             .then(r => r.json())
             .then(data => {
                 loaded++;
@@ -1033,6 +1041,7 @@ function parseSimpleSQL(sql) {
     // 解析 SELECT 字段（处理 DISTINCT）
     var selectMatch = sql.match(/SELECT\s+(DISTINCT\s+)?(.+?)\s+FROM\s/i);
     if (selectMatch) {
+        result.hasDistinct = !!selectMatch[1];
         var fieldStr = selectMatch[2];
         var fieldParts = splitTopLevel(fieldStr, ',');
         fieldParts.forEach(function(fp) {
@@ -1156,6 +1165,9 @@ function applyParsedSQLToCanvas(parsed) {
 
     // 恢复LIMIT
     if (parsed.limit) document.getElementById('limitInput').value = parsed.limit;
+
+    // 恢复DISTINCT勾选
+    document.getElementById('distinctCheck').checked = !!parsed.hasDistinct;
 
     renderCanvas();
     rebuildConditionUI();
