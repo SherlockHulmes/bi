@@ -252,21 +252,32 @@
             id: 'datalabels_' + canvasId,
             afterDatasetsDraw: function(chart) {
                 var c = chart.ctx;
+                var isPie = (chart.config.type === 'pie' || chart.config.type === 'doughnut');
                 chart.data.datasets.forEach(function(ds, dsIdx) {
                     var meta = chart.getDatasetMeta(dsIdx);
                     if (meta.hidden) return;
+                    // 计算饼图总和（用于百分比）
+                    var total = 0;
+                    if (isPie) {
+                        ds.data.forEach(function(v) { total += (v || 0); });
+                    }
                     meta.data.forEach(function(el, i) {
                         var val = ds.data[i];
                         if (!val && val !== 0) return;
                         c.save();
-                        var isPie = (chart.config.type === 'pie' || chart.config.type === 'doughnut');
                         c.fillStyle = isPie ? '#fff' : '#333';
                         c.font = '10px sans-serif';
                         c.textAlign = 'center';
                         c.textBaseline = 'middle';
                         var pos = el.tooltipPosition();
-                        if (isPie) { c.fillText(val, pos.x, pos.y); }
-                        else { c.fillText(val, pos.x, pos.y - 8); }
+                        if (isPie && total > 0) {
+                            var pct = (val / total * 100).toFixed(1) + '%';
+                            c.fillText(val + ' (' + pct + ')', pos.x, pos.y);
+                        } else if (isPie) {
+                            c.fillText(val, pos.x, pos.y);
+                        } else {
+                            c.fillText(val, pos.x, pos.y - 8);
+                        }
                         c.restore();
                     });
                 });
@@ -416,15 +427,18 @@
 
         // 图表配置
         var plugins = {
-            legend: { position: 'bottom', labels: { font: { size: 11 } }, onClick: function(e, legendItem, legend) {
-                // 默认图例交互：点击隐藏/显示
+            legend: { position: 'bottom', labels: { font: { size: 11 } } }
+        };
+        // 非饼图/环形图：自定义图例点击隐藏dataset
+        if (!isPieType) {
+            plugins.legend.onClick = function(e, legendItem, legend) {
                 var idx = legendItem.datasetIndex;
                 var ci = legend.chart;
                 var meta = ci.getDatasetMeta(idx);
                 meta.hidden = meta.hidden === null ? !ci.data.datasets[idx].hidden : null;
                 ci.update();
-            }}
-        };
+            };
+        }
 
         // 刷新时不播放动画，首次加载时播放
         var animOpt = isRefresh ? false : { duration: 600 };
