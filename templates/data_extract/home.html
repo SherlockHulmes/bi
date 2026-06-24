@@ -1152,20 +1152,69 @@ function parseSimpleSQL(sql) {
     }
     var whereMatch = sql.match(/WHERE\s+(.+?)(?:\s+ORDER|\s+GROUP|\s+LIMIT|\s*$)/i);
     if (whereMatch) {
-        var ws = whereMatch[1].trim().replace(/\bIS\s+NOT\s+NULL\b/gi,'IS__NOT__NULL').replace(/\bIS\s+NULL\b/gi,'IS__NULL').replace(/\bNOT\s+IN\b/gi,'NOT__IN');
-        var cl = 'AND';
-        ws.split(/\s+(AND|OR)\s+/i).forEach(function(cp) {
-            cp = cp.trim();
-            if (cp.toUpperCase()==='AND'||cp.toUpperCase()==='OR') { cl=cp.toUpperCase(); return; }
-            cp = cp.replace(/IS__NOT__NULL/g,'IS NOT NULL').replace(/IS__NULL/g,'IS NULL').replace(/NOT__IN/g,'NOT IN');
-            var cm = cp.match(/(\w+\.\w+)\s*(>=|<=|!=|>|<|=|IN|NOT IN|LIKE|IS NULL|IS NOT NULL)\s*(.*)?/i);
-            if (cm) result.conditions.push({ field: cm[1], op: cm[2].toUpperCase(), value: (cm[3]||'').trim().replace(/^['"]|['"]$/g,''), logic: cl });
-        });
+        result.conditions = _parseWhereExpr(whereMatch[1].trim());
     }
     var orderMatch = sql.match(/ORDER\s+BY\s+(.+?)(?:\s+LIMIT|\s*$)/i);
     if (orderMatch) orderMatch[1].split(',').forEach(function(op) { var om = op.trim().match(/(\w+\.\w+)\s*(ASC|DESC)?/i); if (om) result.sorts.push({ field: om[1], dir: (om[2]||'ASC').toUpperCase() }); });
     var limitMatch = sql.match(/LIMIT\s+(\d+)/i);
     if (limitMatch) result.limit = limitMatch[1];
+    return result;
+}
+
+// 递归解析WHERE表达式（支持括号嵌套）
+function _parseWhereExpr(str) {
+    if (!str) return [];
+    str = str.replace(/\bIS\s+NOT\s+NULL\b/gi, 'IS__NOT__NULL')
+             .replace(/\bIS\s+NULL\b/gi, 'IS__NULL')
+             .replace(/\bNOT\s+IN\b/gi, 'NOT__IN');
+
+    // 按顶层AND/OR拆分（跳过括号内的）
+    var parts = [];
+    var cur = '';
+    var depth = 0;
+    var logicBefore = 'AND';
+    var i = 0;
+    while (i < str.length) {
+        if (str[i] === '(') { depth++; cur += str[i]; i++; continue; }
+        if (str[i] === ')') { depth--; cur += str[i]; i++; continue; }
+        if (depth === 0) {
+            // 检查 AND / OR 关键字（带前后空格）
+            var rest = str.substring(i);
+            var andMatch = rest.match(/^(\s+)(AND|OR)(\s+)/i);
+            if (andMatch && andMatch.index === 0) {
+                var kw = andMatch[2].toUpperCase();
+                parts.push({ logic: logicBefore, expr: cur.trim() });
+                logicBefore = kw;
+                cur = '';
+                i += andMatch[0].length;
+                continue;
+            }
+        }
+        cur += str[i];
+        i++;
+    }
+    if (cur.trim()) parts.push({ logic: logicBefore, expr: cur.trim() });
+
+    var result = [];
+    parts.forEach(function(p) {
+        var expr = p.expr;
+        // 检查是否是括号包裹的分组
+        if (expr.charAt(0) === '(' && expr.charAt(expr.length - 1) === ')') {
+            var inner = expr.substring(1, expr.length - 1).trim();
+            var items = _parseWhereExpr(inner);
+            if (items.length) result.push({type: 'group', logic: p.logic, items: items});
+        } else {
+            // 恢复占位符
+            expr = expr.replace(/IS__NOT__NULL/g, 'IS NOT NULL').replace(/IS__NULL/g, 'IS NULL').replace(/NOT__IN/g, 'NOT IN');
+            var cm = expr.match(/(.+?)\s*(>=|<=|!=|>|<|=|IN|NOT IN|LIKE|IS NULL|IS NOT NULL)\s*(.*)?/i);
+            if (cm) {
+                var field = cm[1].trim();
+                var op = cm[2].toUpperCase();
+                var value = (cm[3] || '').trim().replace(/^['"]|['"]$/g, '');
+                result.push({type: 'cond', field: field, op: op, value: value, logic: p.logic});
+            }
+        }
+    });
     return result;
 }
 
