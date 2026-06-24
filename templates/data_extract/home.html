@@ -1253,7 +1253,57 @@ function applyParsedSQLToCanvas(parsed) {
 
 function rebuildConditionUI() {
     document.getElementById('condContainer').innerHTML = '';
-    conditions.forEach(function(c) { addCondition(); var rows = document.querySelectorAll('.cond-row'); var row = rows[rows.length-1]; var fieldEl = row.querySelector('.cond-field-input') || row.querySelector('.cond-field-select'); if(fieldEl) fieldEl.value = c.field; row.querySelector('.cond-op-select').value = c.op; row.querySelector('.cond-value-input').value = c.value||''; row.querySelector('.cond-logic-select').value = c.logic||'AND'; });
+    _rebuildConditionsRecursive(conditions, document.getElementById('condContainer'));
+}
+
+function _rebuildConditionsRecursive(items, container) {
+    if (!items || !items.length) return;
+    items.forEach(function(c) {
+        if (c.type === 'group' && c.items) {
+            // 重建分组
+            addConditionGroup();
+            var groupDiv = container.querySelector('.cond-group:last-child');
+            if (groupDiv) {
+                groupDiv.dataset.logic = c.logic || 'AND';
+                var logicSel = groupDiv.querySelector('.cond-group-header select');
+                if (logicSel) logicSel.value = c.logic || 'AND';
+                // 递归重建分组内的条件
+                _rebuildConditionsRecursive(c.items, groupDiv);
+            }
+        } else if (c.type === 'cond' || (!c.type && c.field)) {
+            // 重建普通条件
+            addConditionToContainer(container);
+            var rows = container.querySelectorAll(':scope > .cond-row');
+            var row = rows[rows.length - 1];
+            if (row) {
+                var fieldEl = row.querySelector('.cond-field-input') || row.querySelector('.cond-field-select');
+                if (fieldEl) fieldEl.value = c.field || '';
+                row.querySelector('.cond-op-select').value = c.op || '=';
+                row.querySelector('.cond-value-input').value = c.value || '';
+                var logicEl = row.querySelector('.cond-logic-select');
+                if (logicEl) logicEl.value = c.logic || 'AND';
+            }
+        }
+    });
+}
+
+// 在指定容器中添加条件行（不绑定到condContainer）
+function addConditionToContainer(container) {
+    var ops = ['=', '!=', '>', '<', '>=', '<=', 'IN', 'NOT IN', 'LIKE', 'IS NULL', 'IS NOT NULL'];
+    var opOpts = '';
+    ops.forEach(function(o) { opOpts += '<option value="' + o + '">' + o + '</option>'; });
+    var uid = 'rc_' + Date.now() + '_' + Math.random().toString(36).substr(2,4);
+    var html = '<div class="cond-row">'
+        + '<input type="text" class="form-control form-control-sm cond-field-input" list="dl_' + uid + '" placeholder="输入或选择字段..." style="width:160px;">'
+        + '<datalist id="dl_' + uid + '">' + buildDatalistOptions() + '</datalist>'
+        + '<select class="form-select form-select-sm cond-op-select" style="width:110px;">' + opOpts + '</select>'
+        + '<input type="text" class="form-control form-control-sm cond-value-input" placeholder="值" style="width:140px;">'
+        + '<select class="form-select form-select-sm cond-logic-select" style="width:70px;"><option value="AND">AND</option><option value="OR">OR</option></select>'
+        + '<button class="btn btn-outline-danger btn-sm" onclick="this.parentElement.remove();buildConditions();"><i class="bi bi-x"></i></button>'
+        + '</div>';
+    var div = document.createElement('div');
+    div.innerHTML = html;
+    container.appendChild(div.firstElementChild);
 }
 
 function rebuildSortUI() {
