@@ -272,6 +272,11 @@ def dashboard_card_data(request, card_id):
             'chart_type': card.chart_type,
             'x_axis_field': card.x_axis_field,
             'y_axis_field': card.y_axis_field,
+            'group_by_field': card.group_by_field,
+            'stacked': card.stacked,
+            'show_data_label': card.show_data_label,
+            'sort_field': card.sort_field,
+            'chart_sort_dir': card.chart_sort_dir,
         })
     except Exception as e:
         logger.error(f"大屏卡片数据查询失败: card={card_id}, 错误: {e}")

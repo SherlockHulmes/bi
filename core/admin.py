@@ -37,9 +37,14 @@ class DashboardCardAdmin(admin.ModelAdmin):
             'description': '选择数据库连接，并关联SQL脚本或直接输入SQL'
         }),
         ('图表配置（仅图表类型有效）', {
-            'fields': ('chart_type', 'x_axis_field', 'y_axis_field'),
+            'fields': ('chart_type', 'x_axis_field', 'y_axis_field', 'group_by_field'),
             'classes': ('collapse',),
-            'description': '配置X轴/标签字段和Y轴/数值字段（对应SQL查询结果的列名）'
+            'description': '配置X轴/标签字段和Y轴/数值字段（对应SQL查询结果的列名）。维度字段可按某列分组生成多条数据系列'
+        }),
+        ('图表高级配置', {
+            'fields': ('stacked', 'show_data_label', 'sort_field', 'chart_sort_dir'),
+            'classes': ('collapse',),
+            'description': '堆叠模式、数值标签、数据排序'
         }),
     )
 

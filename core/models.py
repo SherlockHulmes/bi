@@ -105,6 +105,19 @@ class DashboardCard(models.Model):
                                     help_text='SQL查询结果中的列名，支持逗号分隔多个字段（多个字段会拼接为标签），如：渠道类型,公司名称')
     y_axis_field = models.TextField('Y轴/数值字段', blank=True,
                                     help_text='SQL查询结果中的列名，支持逗号分隔多个字段，如：本金,利息。饼图只取第一个字段')
+    group_by_field = models.CharField('维度字段', max_length=100, blank=True,
+                                      help_text='按该字段分组生成多条数据系列，如：资金方。留空则不分组')
+    stacked = models.BooleanField('堆叠模式', default=False,
+                                  help_text='柱状图/折线图是否堆叠显示')
+    show_data_label = models.BooleanField('显示数值标签', default=False,
+                                          help_text='在图表上显示具体数值')
+    sort_field = models.CharField('排序字段', max_length=100, blank=True,
+                                  help_text='按该字段排序，留空则按数据原始顺序')
+    chart_sort_dir = models.CharField('排序方向', max_length=10, default='none', choices=[
+        ('none', '不排序'),
+        ('ASC', '升序'),
+        ('DESC', '降序'),
+    ])
     sql_query = models.TextField('自定义SQL', blank=True,
                                  help_text='直接输入SQL（优先于关联的脚本）')
     sort_order = models.IntegerField('排序', default=0)
