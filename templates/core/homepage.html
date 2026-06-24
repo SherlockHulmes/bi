@@ -437,10 +437,10 @@
 
         var config;
         if (isPieType) {
-            config = { type: chartType, data: { labels: labels, datasets: datasets }, plugins: inlinePlugins, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, plugins: plugins } };
+            config = { type: chartType, data: { labels: labels, datasets: datasets }, plugins: inlinePlugins, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, plugins: plugins, layout: { padding: { top: 10, right: 10, bottom: 10, left: 10 } } } };
         } else {
             var scalesOpt = { x: { stacked: isStacked }, y: { beginAtZero: true, stacked: isStacked } };
-            config = { type: realType, data: { labels: labels, datasets: datasets }, plugins: inlinePlugins, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, indexAxis: isHorizontal ? 'y' : 'x', plugins: plugins, scales: scalesOpt } };
+            config = { type: realType, data: { labels: labels, datasets: datasets }, plugins: inlinePlugins, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, indexAxis: isHorizontal ? 'y' : 'x', plugins: plugins, scales: scalesOpt, layout: { padding: { top: 20, right: 10, bottom: 10, left: 10 } } } };
         }
 
         // 销毁旧图表

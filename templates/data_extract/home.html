@@ -850,7 +850,9 @@ function _buildConditionsSQL(items) {
             if (item.op === 'IS NULL' || item.op === 'IS NOT NULL') {
                 condSql = item.field + ' ' + item.op;
             } else if (item.op === 'IN' || item.op === 'NOT IN') {
-                condSql = item.field + ' ' + item.op + ' (' + item.value + ')';
+                // 对IN值做格式化：用逗号分割后每项加引号
+                var inVals = item.value.split(',').map(function(v) { return "'" + v.trim() + "'"; }).join(', ');
+                condSql = item.field + ' ' + item.op + ' (' + inVals + ')';
             } else if (item.op === 'LIKE') {
                 condSql = item.field + ' LIKE \'' + item.value + '\'';
             } else {
@@ -955,7 +957,8 @@ function getVisualState() {
         aliasCounter: aliasCounter,
         fieldOrder: _fieldOrder,
         tableOrder: parsedTableOrder,
-        limit: document.getElementById('limitInput').value
+        limit: document.getElementById('limitInput').value,
+        distinct: document.getElementById('distinctCheck').checked
     });
 }
 
@@ -1051,6 +1054,7 @@ function loadTemplate(pk) {
 function restoreVisualState(vs, dbId) {
     clearCanvas();
     if (vs.limit) document.getElementById('limitInput').value = vs.limit;
+    document.getElementById('distinctCheck').checked = !!vs.distinct;
     if (vs.conditions) conditions = vs.conditions;
     if (vs.sorts) sorts = vs.sorts;
     if (vs.fieldAliases) fieldAliases = vs.fieldAliases;
