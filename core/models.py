@@ -97,10 +97,13 @@ class DashboardCard(models.Model):
     chart_type = models.CharField('图表类型', max_length=20, default='bar', choices=[
         ('bar', '柱状图'),
         ('line', '折线图'),
+        ('area', '面积图'),
         ('pie', '饼图'),
         ('doughnut', '环形图'),
         ('horizontal_bar', '横向柱状图'),
     ])
+    chart_height = models.IntegerField('图表高度(px)', default=300,
+                                       help_text='图表显示高度，默认300px')
     x_axis_field = models.TextField('X轴/标签字段', blank=True,
                                     help_text='SQL查询结果中的列名，支持逗号分隔多个字段（多个字段会拼接为标签），如：渠道类型,公司名称')
     y_axis_field = models.TextField('Y轴/数值字段', blank=True,

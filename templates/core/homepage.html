@@ -250,17 +250,26 @@
         var chartType = data.chart_type || 'bar';
         var isPieType = (chartType === 'pie' || chartType === 'doughnut');
         var isHorizontal = (chartType === 'horizontal_bar');
+        var isArea = (chartType === 'area');
+        var realType = isArea ? 'line' : (isHorizontal ? 'bar' : chartType);
+        var chartHeight = data.chart_height || 300;
 
-        // 解析X轴字段（逗号分隔，多字段拼接）
+        // 解析X轴字段
         var xFields = (data.x_axis_field || '').split(',').map(function(s){ return s.trim(); }).filter(function(s){ return s; });
         if (!xFields.length) xFields = [data.columns[0]];
+        var xMainField = xFields[0];
+        var xSubFields = xFields.slice(1); // 子维度字段
 
-        // 解析Y轴字段（逗号分隔）
+        // 解析Y轴字段
         var yFields = (data.y_axis_field || '').split(',').map(function(s){ return s.trim(); }).filter(function(s){ return s; });
         if (!yFields.length) yFields = [data.columns.length > 1 ? data.columns[1] : data.columns[0]];
 
         // 维度字段
         var groupField = (data.group_by_field || '').trim();
+
+        // 合并所有分组字段：xSubFields + groupField
+        var allGroupFields = xSubFields.slice();
+        if (groupField && allGroupFields.indexOf(groupField) < 0) allGroupFields.push(groupField);
 
         // 排序
         var sortField = (data.sort_field || '').trim();
@@ -271,47 +280,65 @@
         if (sortField && sortDir !== 'none') {
             rows.sort(function(a, b) {
                 var va = a[sortField], vb = b[sortField];
-                // 尝试数字比较
                 var na = parseFloat(va), nb = parseFloat(vb);
-                if (!isNaN(na) && !isNaN(nb)) {
-                    return sortDir === 'ASC' ? na - nb : nb - na;
-                }
-                // 字符串比较
+                if (!isNaN(na) && !isNaN(nb)) return sortDir === 'ASC' ? na - nb : nb - na;
                 va = String(va || ''); vb = String(vb || '');
                 return sortDir === 'ASC' ? va.localeCompare(vb) : vb.localeCompare(va);
             });
         }
 
-        // 提取X轴标签（去重并保持顺序）
+        // 空数据提示
+        if (!rows.length) {
+            container.innerHTML = '<div class="text-center text-muted py-4"><i class="bi bi-bar-chart" style="font-size:2rem;"></i><p class="mt-2">暂无数据</p></div>';
+            return;
+        }
+
+        // X轴主标签（去重保持顺序）
         var labelMap = {};
         var labels = [];
         rows.forEach(function(r) {
-            var key = xFields.map(function(f) { return r[f] !== null ? r[f] : ''; }).join(' - ');
+            var key = r[xMainField] !== null ? String(r[xMainField]) : '';
             if (!labelMap[key]) { labelMap[key] = true; labels.push(key); }
         });
 
-        // 清理旧图表
+        // 构建画布
         var canvasId = 'chart_' + Math.random().toString(36).substr(2, 9);
-        container.innerHTML = '<canvas id="' + canvasId + '" style="max-height:300px;"></canvas>';
+        var exportBtnId = 'export_' + canvasId;
+        container.innerHTML = '<canvas id="' + canvasId + '" style="max-height:' + chartHeight + 'px;"></canvas>'
+            + '<div class="text-end mt-1"><button id="' + exportBtnId + '" class="btn btn-sm btn-outline-secondary" style="font-size:0.7rem;padding:1px 6px;" onclick="exportChartPNG(\'' + canvasId + '\',\'' + (data.title || 'chart') + '\')"><i class="bi bi-download"></i> 导出PNG</button></div>';
         var ctx = document.getElementById(canvasId).getContext('2d');
 
         var colors = ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#6366f1','#14b8a6','#e11d48'];
         var isStacked = !!data.stacked;
         var showLabels = !!data.show_data_label;
-
         var datasets = [];
 
-        if (groupField && !isPieType) {
-            // 维度分组模式：按 groupField 分组，每组生成一条数据系列
+        function makeDataset(type, label, values, color, stacked, idx) {
+            var ds = { label: label, data: values, backgroundColor: color + '99', borderColor: color, borderWidth: 1 };
+            if (stacked) ds.stack = 'stack0';
+            if (type === 'line' || isArea) {
+                ds.tension = 0.3; ds.borderWidth = 2;
+                ds.fill = isArea ? 'origin' : false;
+                ds.backgroundColor = isArea ? color + '40' : color + '33';
+            }
+            return ds;
+        }
+
+        // 获取分组键
+        function getGroupKey(r) {
+            if (!allGroupFields.length) return '__default__';
+            return allGroupFields.map(function(f) { return r[f] !== null ? String(r[f]) : '(空)'; }).join(' | ');
+        }
+
+        if (allGroupFields.length && !isPieType) {
+            // 维度分组模式
             var groups = {};
             rows.forEach(function(r) {
-                var gKey = r[groupField] !== null ? String(r[groupField]) : '(空)';
+                var gKey = getGroupKey(r);
                 if (!groups[gKey]) groups[gKey] = {};
-                var xKey = xFields.map(function(f) { return r[f] !== null ? r[f] : ''; }).join(' - ');
-                groups[gKey][xKey] = r;
+                groups[gKey][r[xMainField]] = r;
             });
             var groupKeys = Object.keys(groups);
-            // 每个维度值 × 每个Y字段
             groupKeys.forEach(function(gKey, gIdx) {
                 yFields.forEach(function(yField, yIdx) {
                     var dsIdx = gIdx * yFields.length + yIdx;
@@ -322,17 +349,15 @@
                         var v = r[yField];
                         return v !== null ? parseFloat(v) || 0 : 0;
                     });
-                    datasets.push(makeDataset(chartType, label, values, colors[dsIdx % colors.length], isStacked, dsIdx));
+                    datasets.push(makeDataset(realType, label, values, colors[dsIdx % colors.length], isStacked, dsIdx));
                 });
             });
-        } else if (groupField && isPieType) {
-            // 饼图+维度：按维度分组，取第一个Y字段
+        } else if (allGroupFields.length && isPieType) {
+            // 饼图+维度
             var yField = yFields[0];
-            var groupLabels = [];
-            var groupValues = [];
-            var groups = {};
+            var groupLabels = [], groupValues = [], groups = {};
             rows.forEach(function(r) {
-                var gKey = r[groupField] !== null ? String(r[groupField]) : '(空)';
+                var gKey = getGroupKey(r);
                 if (!groups[gKey]) { groups[gKey] = 0; groupLabels.push(gKey); }
                 var v = r[yField];
                 groups[gKey] += v !== null ? parseFloat(v) || 0 : 0;
@@ -341,13 +366,11 @@
             datasets.push({ data: groupValues, backgroundColor: colors.slice(0, groupLabels.length), borderWidth: 1 });
             labels = groupLabels;
         } else {
-            // 无维度：多个Y字段各自为数据系列
+            // 无维度
             yFields.forEach(function(yField, idx) {
                 var values = labels.map(function(l) {
-                    // 找到对应行
                     for (var i = 0; i < rows.length; i++) {
-                        var xKey = xFields.map(function(f) { return rows[i][f] !== null ? rows[i][f] : ''; }).join(' - ');
-                        if (xKey === l) {
+                        if (String(rows[i][xMainField]) === l) {
                             var v = rows[i][yField];
                             return v !== null ? parseFloat(v) || 0 : 0;
                         }
@@ -357,87 +380,73 @@
                 if (isPieType) {
                     datasets.push({ data: values, backgroundColor: colors.slice(0, values.length), borderWidth: 1 });
                 } else {
-                    datasets.push(makeDataset(chartType, yField, values, colors[idx % colors.length], isStacked, idx));
+                    datasets.push(makeDataset(realType, yField, values, colors[idx % colors.length], isStacked, idx));
                 }
             });
         }
 
-        function makeDataset(type, label, values, color, stacked, idx) {
-            var ds = { label: label, data: values, backgroundColor: color + '99', borderColor: color, borderWidth: 1 };
-            if (stacked) ds.stack = 'stack0';
-            if (type === 'line') {
-                ds.tension = 0.3; ds.fill = false; ds.borderWidth = 2;
-                ds.backgroundColor = color + '33';
-            }
-            return ds;
-        }
-
         // 图表配置
-        var config;
-        if (isPieType) {
-            config = {
-                type: chartType,
-                data: { labels: labels, datasets: datasets },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: { position: 'bottom', labels: { font: { size: 11 } } },
-                        datalabels: showLabels ? { color: '#fff', font: { size: 10 }, formatter: function(v) { return v; } } : undefined
-                    }
-                }
-            };
-        } else {
-            var scalesOpt = {
-                x: { stacked: isStacked },
-                y: { beginAtZero: true, stacked: isStacked }
-            };
-            config = {
-                type: isHorizontal ? 'bar' : chartType,
-                data: { labels: labels, datasets: datasets },
-                options: {
-                    responsive: true,
-                    indexAxis: isHorizontal ? 'y' : 'x',
-                    plugins: {
-                        legend: { position: 'bottom', labels: { font: { size: 11 } } },
-                        datalabels: showLabels ? { anchor: 'end', align: 'top', font: { size: 10 }, formatter: function(v) { return v; } } : undefined
-                    },
-                    scales: scalesOpt
-                }
-            };
-        }
+        var plugins = {
+            legend: { position: 'bottom', labels: { font: { size: 11 } }, onClick: function(e, legendItem, legend) {
+                // 默认图例交互：点击隐藏/显示
+                var idx = legendItem.datasetIndex;
+                var ci = legend.chart;
+                var meta = ci.getDatasetMeta(idx);
+                meta.hidden = meta.hidden === null ? !ci.data.datasets[idx].hidden : null;
+                ci.update();
+            }}
+        };
 
-        // 如果需要数据标签，引入 chartjs-plugin-datalabels（轻量内联实现）
+        // 数据标签插件
         if (showLabels) {
+            var dlPluginId = 'customLabels_' + canvasId;
             Chart.register({
-                id: 'customDatalabels',
+                id: dlPluginId,
                 afterDatasetsDraw: function(chart) {
-                    var ctx = chart.ctx;
+                    var c = chart.ctx;
                     chart.data.datasets.forEach(function(ds, dsIdx) {
                         var meta = chart.getDatasetMeta(dsIdx);
                         if (meta.hidden) return;
-                        meta.data.forEach(function(arc, i) {
+                        meta.data.forEach(function(el, i) {
                             var val = ds.data[i];
-                            if (!val) return;
-                            ctx.save();
-                            ctx.fillStyle = '#333';
-                            ctx.font = '10px sans-serif';
-                            ctx.textAlign = 'center';
-                            ctx.textBaseline = 'middle';
-                            if (chart.config.type === 'pie' || chart.config.type === 'doughnut') {
-                                var pos = arc.tooltipPosition();
-                                ctx.fillText(val, pos.x, pos.y);
+                            if (!val && val !== 0) return;
+                            c.save();
+                            c.fillStyle = isPieType ? '#fff' : '#333';
+                            c.font = '10px sans-serif';
+                            c.textAlign = 'center';
+                            c.textBaseline = 'middle';
+                            var pos = el.tooltipPosition();
+                            if (isPieType) {
+                                c.fillText(val, pos.x, pos.y);
                             } else {
-                                var pos = arc.tooltipPosition();
-                                ctx.fillText(val, pos.x, pos.y - 8);
+                                c.fillText(val, pos.x, pos.y - 8);
                             }
-                            ctx.restore();
+                            c.restore();
                         });
                     });
                 }
             });
         }
 
+        var config;
+        if (isPieType) {
+            config = { type: chartType, data: { labels: labels, datasets: datasets }, options: { responsive: true, plugins: plugins } };
+        } else {
+            var scalesOpt = { x: { stacked: isStacked }, y: { beginAtZero: true, stacked: isStacked } };
+            config = { type: realType, data: { labels: labels, datasets: datasets }, options: { responsive: true, indexAxis: isHorizontal ? 'y' : 'x', plugins: plugins, scales: scalesOpt } };
+        }
+
         _chartInstances[canvasId] = new Chart(ctx, config);
+    }
+
+    // 导出图表为PNG
+    function exportChartPNG(canvasId, title) {
+        var chart = _chartInstances[canvasId];
+        if (!chart) return;
+        var link = document.createElement('a');
+        link.download = (title || 'chart') + '.png';
+        link.href = chart.toBase64Image();
+        link.click();
     }
 
     // 利率计算器

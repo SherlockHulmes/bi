@@ -270,6 +270,7 @@ def dashboard_card_data(request, card_id):
             'card_type': card.card_type,
             'title': card.title,
             'chart_type': card.chart_type,
+            'chart_height': card.chart_height,
             'x_axis_field': card.x_axis_field,
             'y_axis_field': card.y_axis_field,
             'group_by_field': card.group_by_field,
