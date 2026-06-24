@@ -45,6 +45,10 @@
     .field-alias-input { border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.7rem; padding: 0 4px; width: 70px; color: #475569; }
     .cond-row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; flex-wrap: wrap; }
     .cond-row select, .cond-row input { font-size: 0.8rem; padding: 2px 6px; }
+    .cond-group { border: 2px dashed #93c5fd; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; background: #f0f7ff; }
+    .cond-group-header { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; font-size: 0.8rem; color: #1e40af; }
+    .cond-group-header .qb-remove { cursor: pointer; color: #93c5fd; font-weight: bold; margin-left: auto; }
+    .cond-group-header .qb-remove:hover { color: #dc2626; }
     .sql-editor { width: 100%; min-height: 80px; font-family: 'Consolas', monospace; font-size: 0.85rem; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; resize: vertical; }
     .result-table { font-size: 0.8rem; }
     .result-table th { position: sticky; top: 0; background: #f8fafc; white-space: nowrap; }
@@ -108,7 +112,10 @@
             <div class="qb-section" id="condSection">
                 <span class="qb-label">条件</span>
                 <div style="flex:1;" id="condContainer"></div>
-                <button class="btn btn-outline-primary btn-sm" onclick="addCondition()" style="flex-shrink:0;"><i class="bi bi-plus"></i></button>
+                <div style="display:flex;gap:4px;flex-shrink:0;">
+                    <button class="btn btn-outline-primary btn-sm" onclick="addCondition()" title="添加条件"><i class="bi bi-plus"></i></button>
+                    <button class="btn btn-outline-info btn-sm" onclick="addConditionGroup()" title="添加条件分组 (OR)"><i class="bi bi-braces"></i></button>
+                </div>
             </div>
             <div class="qb-section" id="sortSection">
                 <span class="qb-label">排序</span>
@@ -633,6 +640,45 @@ function addCondition() {
     document.getElementById('condContainer').appendChild(div.firstElementChild);
 }
 
+var _condGroupCounter = 0;
+
+function addConditionGroup() {
+    _condGroupCounter++;
+    var groupId = 'condGroup_' + _condGroupCounter;
+    var div = document.createElement('div');
+    div.className = 'cond-group';
+    div.id = groupId;
+    div.innerHTML = '<div class="cond-group-header">'
+        + '<i class="bi bi-braces"></i> 分组（括号）'
+        + '<select class="form-select form-select-sm" style="width:70px;font-size:0.75rem;padding:0 4px;" onchange="this.parentElement.parentElement.dataset.logic=this.value;">'
+        + '<option value="AND">AND</option><option value="OR">OR</option></select>'
+        + '<button class="btn btn-outline-primary btn-sm" onclick="addConditionToGroup(\'' + groupId + '\')" style="padding:0 4px;font-size:0.7rem;" title="添加条件"><i class="bi bi-plus"></i></button>'
+        + '<span class="qb-remove" onclick="this.parentElement.parentElement.remove();buildConditions();">&times;</span>'
+        + '</div>';
+    div.dataset.logic = 'AND';
+    document.getElementById('condContainer').appendChild(div);
+}
+
+function addConditionToGroup(groupId) {
+    var group = document.getElementById(groupId);
+    if (!group) return;
+    var ops = ['=', '!=', '>', '<', '>=', '<=', 'IN', 'NOT IN', 'LIKE', 'IS NULL', 'IS NOT NULL'];
+    var opOpts = '';
+    ops.forEach(function(o) { opOpts += '<option value="' + o + '">' + o + '</option>'; });
+    var uid = 'cg_' + Date.now() + '_' + Math.random().toString(36).substr(2,4);
+    var html = '<div class="cond-row">'
+        + '<input type="text" class="form-control form-control-sm cond-field-input" list="dl_' + uid + '" placeholder="输入或选择字段..." style="width:160px;">'
+        + '<datalist id="dl_' + uid + '">' + buildDatalistOptions() + '</datalist>'
+        + '<select class="form-select form-select-sm cond-op-select" style="width:110px;">' + opOpts + '</select>'
+        + '<input type="text" class="form-control form-control-sm cond-value-input" placeholder="值" style="width:140px;">'
+        + '<select class="form-select form-select-sm cond-logic-select" style="width:70px;"><option value="AND">AND</option><option value="OR">OR</option></select>'
+        + '<button class="btn btn-outline-danger btn-sm" onclick="this.parentElement.remove();buildConditions();"><i class="bi bi-x"></i></button>'
+        + '</div>';
+    var div = document.createElement('div');
+    div.innerHTML = html;
+    group.appendChild(div.firstElementChild);
+}
+
 function filterFieldSelect(selId, kw) {
     var sel = document.getElementById(selId);
     if (!sel) return;
@@ -664,15 +710,33 @@ function addSort() {
 }
 
 function buildConditions() {
-    conditions = [];
-    document.querySelectorAll('.cond-row').forEach(function(row) {
-        var fieldEl = row.querySelector('.cond-field-input') || row.querySelector('.cond-field-select');
-        var field = fieldEl ? fieldEl.value : '';
-        var op = row.querySelector('.cond-op-select').value;
-        var value = row.querySelector('.cond-value-input').value.trim();
-        var logic = row.querySelector('.cond-logic-select').value;
-        if (field && op) conditions.push({field: field, op: op, value: value, logic: logic});
-    });
+    // 递归收集条件（支持分组括号）
+    conditions = _collectConditionsFromContainer(document.getElementById('condContainer'));
+}
+
+function _collectConditionsFromContainer(container) {
+    var result = [];
+    var children = container.children;
+    for (var i = 0; i < children.length; i++) {
+        var el = children[i];
+        if (el.classList.contains('cond-row')) {
+            // 普通条件行
+            var fieldEl = el.querySelector('.cond-field-input') || el.querySelector('.cond-field-select');
+            var field = fieldEl ? fieldEl.value : '';
+            var op = el.querySelector('.cond-op-select').value;
+            var value = el.querySelector('.cond-value-input').value.trim();
+            var logic = el.querySelector('.cond-logic-select') ? el.querySelector('.cond-logic-select').value : 'AND';
+            if (field && op) result.push({type: 'cond', field: field, op: op, value: value, logic: logic});
+        } else if (el.classList.contains('cond-group')) {
+            // 分组（括号）
+            var groupLogic = el.dataset.logic || 'AND';
+            var groupItems = _collectConditionsFromContainer(el);
+            if (groupItems.length) {
+                result.push({type: 'group', logic: groupLogic, items: groupItems});
+            }
+        }
+    }
+    return result;
 }
 
 function buildSorts() {
@@ -762,19 +826,46 @@ function generateSQL() {
     buildSorts();
 
     if (conditions.length) {
-        var condParts = conditions.map(function(c) {
-            if (c.op === 'IS NULL' || c.op === 'IS NOT NULL') return c.field + ' ' + c.op;
-            if (c.op === 'IN' || c.op === 'NOT IN') return c.field + ' ' + c.op + ' (' + c.value + ')';
-            if (c.op === 'LIKE') return c.field + ' LIKE \'' + c.value + '\'';
-            return c.field + ' ' + c.op + ' \'' + c.value + '\'';
-        });
-        sql += '\nWHERE ' + condParts[0];
-        for (var i = 1; i < condParts.length; i++) sql += ' ' + conditions[i].logic + ' ' + condParts[i];
+        var whereSql = _buildConditionsSQL(conditions);
+        if (whereSql) sql += '\nWHERE ' + whereSql;
     }
     if (sorts.length) sql += '\nORDER BY ' + sorts.map(function(s) { return s.field + ' ' + s.dir; }).join(', ');
     var limit = document.getElementById('limitInput').value;
     if (limit) sql += '\nLIMIT ' + limit;
     return sql;
+}
+
+// 递归生成带括号的条件SQL
+function _buildConditionsSQL(items) {
+    if (!items || !items.length) return '';
+    var parts = [];
+    items.forEach(function(item, idx) {
+        if (item.type === 'group' && item.items && item.items.length) {
+            // 分组 → 加括号
+            var inner = _buildConditionsSQL(item.items);
+            if (inner) parts.push({sql: '(' + inner + ')', logic: item.logic || 'AND'});
+        } else if (item.type === 'cond') {
+            // 普通条件
+            var condSql = '';
+            if (item.op === 'IS NULL' || item.op === 'IS NOT NULL') {
+                condSql = item.field + ' ' + item.op;
+            } else if (item.op === 'IN' || item.op === 'NOT IN') {
+                condSql = item.field + ' ' + item.op + ' (' + item.value + ')';
+            } else if (item.op === 'LIKE') {
+                condSql = item.field + ' LIKE \'' + item.value + '\'';
+            } else {
+                condSql = item.field + ' ' + item.op + ' \'' + item.value + '\'';
+            }
+            parts.push({sql: condSql, logic: item.logic || 'AND'});
+        }
+    });
+    if (!parts.length) return '';
+    // 第一个条件不加 logic，后续条件加上
+    var result = parts[0].sql;
+    for (var i = 1; i < parts.length; i++) {
+        result += ' ' + parts[i].logic + ' ' + parts[i].sql;
+    }
+    return result;
 }
 
 function executeQuery() {
