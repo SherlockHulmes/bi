@@ -245,15 +245,12 @@
     }
 
     var _chartInstances = {}; // 存储chart实例以便销毁重建（按container ID）
-    var _labelPluginRegistered = false;
 
-    // 全局注册数据标签插件（只执行一次）
-    if (!_labelPluginRegistered) {
-        Chart.register({
-            id: 'customDatalabels',
+    // 创建数据标签插件（每个图表独立实例，避免全局污染）
+    function createDataLabelPlugin(canvasId) {
+        return {
+            id: 'datalabels_' + canvasId,
             afterDatasetsDraw: function(chart) {
-                var showLabels = chart.options.plugins && chart.options.plugins.customDatalabels;
-                if (!showLabels) return;
                 var c = chart.ctx;
                 chart.data.datasets.forEach(function(ds, dsIdx) {
                     var meta = chart.getDatasetMeta(dsIdx);
@@ -274,8 +271,7 @@
                     });
                 });
             }
-        });
-        _labelPluginRegistered = true;
+        };
     }
 
     function renderChart(container, data) {
@@ -430,20 +426,21 @@
             }}
         };
 
-        // 数据标签通过全局插件 customDatalabels 实现
-        if (showLabels) {
-            plugins.customDatalabels = true;
-        }
-
         // 刷新时不播放动画，首次加载时播放
         var animOpt = isRefresh ? false : { duration: 600 };
 
+        // 构建内联插件列表（每个图表独立，不污染全局）
+        var inlinePlugins = [];
+        if (showLabels) {
+            inlinePlugins.push(createDataLabelPlugin(canvasId));
+        }
+
         var config;
         if (isPieType) {
-            config = { type: chartType, data: { labels: labels, datasets: datasets }, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, plugins: plugins } };
+            config = { type: chartType, data: { labels: labels, datasets: datasets }, plugins: inlinePlugins, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, plugins: plugins } };
         } else {
             var scalesOpt = { x: { stacked: isStacked }, y: { beginAtZero: true, stacked: isStacked } };
-            config = { type: realType, data: { labels: labels, datasets: datasets }, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, indexAxis: isHorizontal ? 'y' : 'x', plugins: plugins, scales: scalesOpt } };
+            config = { type: realType, data: { labels: labels, datasets: datasets }, plugins: inlinePlugins, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, indexAxis: isHorizontal ? 'y' : 'x', plugins: plugins, scales: scalesOpt } };
         }
 
         // 销毁旧图表
