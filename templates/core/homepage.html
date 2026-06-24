@@ -244,7 +244,39 @@
         container.innerHTML = html;
     }
 
-    var _chartInstances = {}; // 存储chart实例以便销毁重建
+    var _chartInstances = {}; // 存储chart实例以便销毁重建（按container ID）
+    var _labelPluginRegistered = false;
+
+    // 全局注册数据标签插件（只执行一次）
+    if (!_labelPluginRegistered) {
+        Chart.register({
+            id: 'customDatalabels',
+            afterDatasetsDraw: function(chart) {
+                var showLabels = chart.options.plugins && chart.options.plugins.customDatalabels;
+                if (!showLabels) return;
+                var c = chart.ctx;
+                chart.data.datasets.forEach(function(ds, dsIdx) {
+                    var meta = chart.getDatasetMeta(dsIdx);
+                    if (meta.hidden) return;
+                    meta.data.forEach(function(el, i) {
+                        var val = ds.data[i];
+                        if (!val && val !== 0) return;
+                        c.save();
+                        var isPie = (chart.config.type === 'pie' || chart.config.type === 'doughnut');
+                        c.fillStyle = isPie ? '#fff' : '#333';
+                        c.font = '10px sans-serif';
+                        c.textAlign = 'center';
+                        c.textBaseline = 'middle';
+                        var pos = el.tooltipPosition();
+                        if (isPie) { c.fillText(val, pos.x, pos.y); }
+                        else { c.fillText(val, pos.x, pos.y - 8); }
+                        c.restore();
+                    });
+                });
+            }
+        });
+        _labelPluginRegistered = true;
+    }
 
     function renderChart(container, data) {
         var chartType = data.chart_type || 'bar';
@@ -253,6 +285,7 @@
         var isArea = (chartType === 'area');
         var realType = isArea ? 'line' : (isHorizontal ? 'bar' : chartType);
         var chartHeight = data.chart_height || 300;
+        var isRefresh = !!container.dataset.chartId;
 
         // 解析X轴字段
         var xFields = (data.x_axis_field || '').split(',').map(function(s){ return s.trim(); }).filter(function(s){ return s; });
@@ -397,45 +430,29 @@
             }}
         };
 
-        // 数据标签插件
+        // 数据标签通过全局插件 customDatalabels 实现
         if (showLabels) {
-            var dlPluginId = 'customLabels_' + canvasId;
-            Chart.register({
-                id: dlPluginId,
-                afterDatasetsDraw: function(chart) {
-                    var c = chart.ctx;
-                    chart.data.datasets.forEach(function(ds, dsIdx) {
-                        var meta = chart.getDatasetMeta(dsIdx);
-                        if (meta.hidden) return;
-                        meta.data.forEach(function(el, i) {
-                            var val = ds.data[i];
-                            if (!val && val !== 0) return;
-                            c.save();
-                            c.fillStyle = isPieType ? '#fff' : '#333';
-                            c.font = '10px sans-serif';
-                            c.textAlign = 'center';
-                            c.textBaseline = 'middle';
-                            var pos = el.tooltipPosition();
-                            if (isPieType) {
-                                c.fillText(val, pos.x, pos.y);
-                            } else {
-                                c.fillText(val, pos.x, pos.y - 8);
-                            }
-                            c.restore();
-                        });
-                    });
-                }
-            });
+            plugins.customDatalabels = true;
         }
+
+        // 刷新时不播放动画，首次加载时播放
+        var animOpt = isRefresh ? false : { duration: 600 };
 
         var config;
         if (isPieType) {
-            config = { type: chartType, data: { labels: labels, datasets: datasets }, options: { responsive: true, plugins: plugins } };
+            config = { type: chartType, data: { labels: labels, datasets: datasets }, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, plugins: plugins } };
         } else {
             var scalesOpt = { x: { stacked: isStacked }, y: { beginAtZero: true, stacked: isStacked } };
-            config = { type: realType, data: { labels: labels, datasets: datasets }, options: { responsive: true, indexAxis: isHorizontal ? 'y' : 'x', plugins: plugins, scales: scalesOpt } };
+            config = { type: realType, data: { labels: labels, datasets: datasets }, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, indexAxis: isHorizontal ? 'y' : 'x', plugins: plugins, scales: scalesOpt } };
         }
 
+        // 销毁旧图表
+        var chartKey = container.id || container.dataset.chartId;
+        if (_chartInstances[chartKey]) {
+            _chartInstances[chartKey].destroy();
+            delete _chartInstances[chartKey];
+        }
+        container.dataset.chartId = canvasId;
         _chartInstances[canvasId] = new Chart(ctx, config);
     }
 
