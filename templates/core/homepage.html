@@ -348,7 +348,23 @@
             + '<div class="text-end mt-1"><button id="' + exportBtnId + '" class="btn btn-sm btn-outline-secondary" style="font-size:0.7rem;padding:1px 6px;" onclick="exportChartPNG(\'' + canvasId + '\',\'' + (data.title || 'chart') + '\')"><i class="bi bi-download"></i> 导出PNG</button></div>';
         var ctx = document.getElementById(canvasId).getContext('2d');
 
-        var colors = ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#6366f1','#14b8a6','#e11d48'];
+        // 配色方案（PPT风格预设）
+        var colorSchemeMap = {
+            'default': ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#6366f1','#14b8a6','#e11d48'],
+            'business': ['#475569','#64748b','#94a3b8','#0ea5e9','#8b5cf6','#d946ef','#059669','#eab308','#f97316','#0d9488','#7c3aed','#155e75'],
+            'vibrant': ['#f43f5e','#a855f7','#06b6d4','#f97316','#22c55e','#3b82f6','#ec4899','#eab308','#14b8a6','#6366f1','#ef4444','#8b5cf6'],
+            'morandi': ['#8b7355','#a69279','#6b8e6b','#c4a882','#7a6f8a','#5b7b7b','#9b8a76','#8fbc8f','#b8a088','#7b8e97','#a0a0a0','#c0a888'],
+            'earth': ['#92400e','#854d0e','#3f6212','#1e3a5f','#7e22ce','#be185d','#b45309','#a16207','#4d7c0f','#155e75','#6b21a8','#9f1239'],
+            'mint': ['#0d9488','#0891b2','#059669','#16a34a','#2563eb','#7c3aed','#f43f5e','#f97316','#eab308','#06b6d4','#8b5cf6','#ec4899']
+        };
+        var scheme = data.color_scheme || 'default';
+        var colors;
+        if (scheme === 'custom' && data.custom_colors) {
+            colors = data.custom_colors.split(',').map(function(s){ return s.trim(); }).filter(function(s){ return s; });
+        } else {
+            colors = colorSchemeMap[scheme] || colorSchemeMap['default'];
+        }
+        if (!colors || !colors.length) colors = colorSchemeMap['default'];
         var isStacked = !!data.stacked;
         var showLabels = !!data.show_data_label;
         var datasets = [];
@@ -467,14 +483,28 @@
         _chartInstances[canvasId] = new Chart(ctx, config);
     }
 
-    // 导出图表为PNG
+    // 导出图表为PNG（白色背景，避免棋盘格）
     function exportChartPNG(canvasId, title) {
         var chart = _chartInstances[canvasId];
         if (!chart) return;
+        var canvas = document.getElementById(canvasId);
+        var origCtx = canvas.getContext('2d');
+        // 保存原始canvas内容
+        var origImage = origCtx.getImageData(0, 0, canvas.width, canvas.height);
+        // 绘制白色背景
+        origCtx.save();
+        origCtx.globalCompositeOperation = 'destination-over';
+        origCtx.fillStyle = '#ffffff';
+        origCtx.fillRect(0, 0, canvas.width, canvas.height);
+        origCtx.restore();
+        // 导出
         var link = document.createElement('a');
         link.download = (title || 'chart') + '.png';
-        link.href = chart.toBase64Image();
+        link.href = canvas.toDataURL('image/png');
         link.click();
+        // 恢复透明背景
+        origCtx.clearRect(0, 0, canvas.width, canvas.height);
+        origCtx.putImageData(origImage, 0, 0);
     }
 
     // 利率计算器

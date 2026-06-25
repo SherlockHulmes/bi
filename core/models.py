@@ -102,6 +102,17 @@ class DashboardCard(models.Model):
         ('doughnut', '环形图'),
         ('horizontal_bar', '横向柱状图'),
     ])
+    color_scheme = models.CharField('配色方案', max_length=50, default='default', choices=[
+        ('default', '经典蓝'),
+        ('business', '商务灰'),
+        ('vibrant', '活力彩'),
+        ('morandi', '莫兰迪'),
+        ('earth', '大地色'),
+        ('mint', '薄荷清新'),
+        ('custom', '自定义'),
+    ], help_text='选择图表配色方案')
+    custom_colors = models.TextField('自定义颜色', blank=True,
+                                     help_text='当配色方案选择"自定义"时，输入逗号分隔的HEX颜色值，如：#3b82f6,#ef4444,#10b981')
     chart_height = models.IntegerField('图表高度(px)', default=300,
                                        help_text='图表显示高度，默认300px')
     x_axis_field = models.TextField('X轴/标签字段', blank=True,

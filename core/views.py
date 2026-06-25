@@ -271,6 +271,8 @@ def dashboard_card_data(request, card_id):
             'title': card.title,
             'chart_type': card.chart_type,
             'chart_height': card.chart_height,
+            'color_scheme': card.color_scheme,
+            'custom_colors': card.custom_colors,
             'x_axis_field': card.x_axis_field,
             'y_axis_field': card.y_axis_field,
             'group_by_field': card.group_by_field,
