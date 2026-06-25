@@ -253,34 +253,85 @@
             afterDatasetsDraw: function(chart) {
                 var c = chart.ctx;
                 var isPie = (chart.config.type === 'pie' || chart.config.type === 'doughnut');
-                chart.data.datasets.forEach(function(ds, dsIdx) {
-                    var meta = chart.getDatasetMeta(dsIdx);
-                    if (meta.hidden) return;
-                    // 计算饼图总和（用于百分比）
+                var isStacked = chart.options.scales && chart.options.scales.y && chart.options.scales.y.stacked;
+
+                if (isPie) {
+                    // 饼图：检查可见性
+                    var ds = chart.data.datasets[0];
+                    if (!ds) return;
                     var total = 0;
-                    if (isPie) {
-                        ds.data.forEach(function(v) { total += (v || 0); });
-                    }
-                    meta.data.forEach(function(el, i) {
-                        var val = ds.data[i];
+                    ds.data.forEach(function(v, i) {
+                        if (chart.getDataVisibility(i)) total += (v || 0);
+                    });
+                    ds.data.forEach(function(val, i) {
                         if (!val && val !== 0) return;
+                        if (!chart.getDataVisibility(i)) return;
+                        var meta = chart.getDatasetMeta(0);
+                        var el = meta.data[i];
+                        if (!el) return;
                         c.save();
-                        c.fillStyle = isPie ? '#fff' : '#333';
+                        c.fillStyle = '#fff';
                         c.font = '10px sans-serif';
                         c.textAlign = 'center';
                         c.textBaseline = 'middle';
                         var pos = el.tooltipPosition();
-                        if (isPie && total > 0) {
-                            var pct = (val / total * 100).toFixed(1) + '%';
-                            c.fillText(val + ' (' + pct + ')', pos.x, pos.y);
-                        } else if (isPie) {
-                            c.fillText(val, pos.x, pos.y);
-                        } else {
-                            c.fillText(val, pos.x, pos.y - 8);
-                        }
+                        var pct = total > 0 ? (val / total * 100).toFixed(1) + '%' : '';
+                        c.fillText(val + (pct ? ' (' + pct + ')' : ''), pos.x, pos.y);
                         c.restore();
                     });
-                });
+                } else if (isStacked) {
+                    // 堆叠模式：只在最顶部显示总和
+                    var numPoints = chart.data.labels ? chart.data.labels.length : 0;
+                    for (var i = 0; i < numPoints; i++) {
+                        var total = 0;
+                        for (var d = 0; d < chart.data.datasets.length; d++) {
+                            if (!chart.isDatasetVisible(d)) continue;
+                            total += (chart.data.datasets[d].data[i] || 0);
+                        }
+                        if (!total) continue;
+                        // 找到最顶部dataset的位置
+                        var topEl = null;
+                        for (var d = chart.data.datasets.length - 1; d >= 0; d--) {
+                            if (!chart.isDatasetVisible(d)) continue;
+                            var meta = chart.getDatasetMeta(d);
+                            if (meta.data[i]) { topEl = meta.data[i]; break; }
+                        }
+                        if (!topEl) continue;
+                        c.save();
+                        c.fillStyle = '#333';
+                        c.font = 'bold 10px sans-serif';
+                        c.textAlign = 'center';
+                        c.textBaseline = 'bottom';
+                        var pos = topEl.tooltipPosition();
+                        c.fillText(total, pos.x, pos.y - 6);
+                        // 小连接线
+                        c.strokeStyle = '#94a3b8';
+                        c.lineWidth = 0.5;
+                        c.beginPath();
+                        c.moveTo(pos.x, pos.y - 4);
+                        c.lineTo(pos.x, pos.y);
+                        c.stroke();
+                        c.restore();
+                    }
+                } else {
+                    // 普通模式：每个数据点显示数值
+                    chart.data.datasets.forEach(function(ds, dsIdx) {
+                        if (!chart.isDatasetVisible(dsIdx)) return;
+                        var meta = chart.getDatasetMeta(dsIdx);
+                        meta.data.forEach(function(el, i) {
+                            var val = ds.data[i];
+                            if (!val && val !== 0) return;
+                            c.save();
+                            c.fillStyle = '#333';
+                            c.font = '10px sans-serif';
+                            c.textAlign = 'center';
+                            c.textBaseline = 'middle';
+                            var pos = el.tooltipPosition();
+                            c.fillText(val, pos.x, pos.y - 8);
+                            c.restore();
+                        });
+                    });
+                }
             }
         };
     }

@@ -1,0 +1,4 @@
+/* 配色方案预览样式 */
+.scheme-preview-bar { display: flex; gap: 2px; margin-top: 4px; flex-wrap: wrap; }
+.scheme-preview-bar span { transition: transform 0.15s; }
+.scheme-preview-bar span:hover { transform: scale(1.3); z-index: 1; }

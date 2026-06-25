@@ -53,7 +53,13 @@ class DashboardCardAdmin(admin.ModelAdmin):
         if db_field.name == 'custom_colors':
             kwargs['widget'] = ColorPaletteWidget(num_colors=12)
             kwargs['help_text'] = '点击色块选择颜色，选完后自动保存为HEX值'
+        if db_field.name == 'color_scheme':
+            kwargs['help_text'] = ''
         return super().formfield_for_dbfield(db_field, request, **kwargs)
+
+    class Media:
+        css = {'all': ('admin/css/color_scheme_preview.css',)}
+        js = ('admin/js/color_scheme_preview.js',)
 
 
 @admin.register(FileUpload)
