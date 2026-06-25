@@ -280,38 +280,53 @@
                         c.restore();
                     });
                 } else if (isStacked) {
-                    // 堆叠模式：只在最顶部显示总和
+                    // 堆叠模式：每个区块在右侧用引线显示具体数值
                     var numPoints = chart.data.labels ? chart.data.labels.length : 0;
                     for (var i = 0; i < numPoints; i++) {
-                        var total = 0;
+                        // 收集该柱子所有可见区块的数值和位置
+                        var segments = [];
                         for (var d = 0; d < chart.data.datasets.length; d++) {
                             if (!chart.isDatasetVisible(d)) continue;
-                            total += (chart.data.datasets[d].data[i] || 0);
-                        }
-                        if (!total) continue;
-                        // 找到最顶部dataset的位置
-                        var topEl = null;
-                        for (var d = chart.data.datasets.length - 1; d >= 0; d--) {
-                            if (!chart.isDatasetVisible(d)) continue;
+                            var val = chart.data.datasets[d].data[i] || 0;
+                            if (!val) continue;
                             var meta = chart.getDatasetMeta(d);
-                            if (meta.data[i]) { topEl = meta.data[i]; break; }
+                            if (!meta.data[i]) continue;
+                            var pos = meta.data[i].tooltipPosition();
+                            segments.push({ val: val, x: pos.x, y: pos.y, dsIdx: d });
                         }
-                        if (!topEl) continue;
-                        c.save();
-                        c.fillStyle = '#333';
-                        c.font = 'bold 10px sans-serif';
-                        c.textAlign = 'center';
-                        c.textBaseline = 'bottom';
-                        var pos = topEl.tooltipPosition();
-                        c.fillText(total, pos.x, pos.y - 6);
-                        // 小连接线
-                        c.strokeStyle = '#94a3b8';
-                        c.lineWidth = 0.5;
-                        c.beginPath();
-                        c.moveTo(pos.x, pos.y - 4);
-                        c.lineTo(pos.x, pos.y);
-                        c.stroke();
-                        c.restore();
+                        if (!segments.length) continue;
+                        var barX = segments[0].x;
+                        // 右侧起始X偏移
+                        var rightOffset = 18;
+                        var lineHeight = 14;
+                        segments.forEach(function(seg, sIdx) {
+                            c.save();
+                            // 引线起点（柱子区块中心）
+                            var startX = barX;
+                            var startY = seg.y;
+                            // 引线终点（右侧偏移）
+                            var endX = barX + rightOffset + 6;
+                            var endY = startY;
+                            // 绘制引线
+                            c.strokeStyle = '#94a3b8';
+                            c.lineWidth = 1;
+                            c.beginPath();
+                            c.moveTo(startX + 2, startY);
+                            c.lineTo(endX - 2, endY);
+                            c.stroke();
+                            // 小圆点
+                            c.fillStyle = '#94a3b8';
+                            c.beginPath();
+                            c.arc(startX + 2, startY, 2, 0, Math.PI * 2);
+                            c.fill();
+                            // 数值文本
+                            c.fillStyle = '#333';
+                            c.font = '9px sans-serif';
+                            c.textAlign = 'left';
+                            c.textBaseline = 'middle';
+                            c.fillText(seg.val, endX + 1, endY);
+                            c.restore();
+                        });
                     }
                 } else {
                     // 普通模式：每个数据点显示数值
@@ -521,7 +536,11 @@
             config = { type: chartType, data: { labels: labels, datasets: datasets }, plugins: inlinePlugins, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, plugins: plugins, layout: { padding: { top: 10, right: 10, bottom: 10, left: 10 } } } };
         } else {
             var scalesOpt = { x: { stacked: isStacked }, y: { beginAtZero: true, stacked: isStacked } };
-            config = { type: realType, data: { labels: labels, datasets: datasets }, plugins: inlinePlugins, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, indexAxis: isHorizontal ? 'y' : 'x', plugins: plugins, scales: scalesOpt, layout: { padding: { top: 20, right: 10, bottom: 10, left: 10 } } } };
+            // 堆叠模式需要更多右侧间距给引线标签
+            var chartPadding = isStacked && showLabels
+                ? { top: 20, right: 80, bottom: 10, left: 10 }
+                : { top: 20, right: 10, bottom: 10, left: 10 };
+            config = { type: realType, data: { labels: labels, datasets: datasets }, plugins: inlinePlugins, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, indexAxis: isHorizontal ? 'y' : 'x', plugins: plugins, scales: scalesOpt, layout: { padding: chartPadding } } };
         }
 
         // 销毁旧图表
