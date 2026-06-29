@@ -246,111 +246,6 @@
 
     var _chartInstances = {}; // 存储chart实例以便销毁重建（按container ID）
 
-    // 创建数据标签插件（每个图表独立实例，避免全局污染）
-    function createDataLabelPlugin(canvasId) {
-        return {
-            id: 'datalabels_' + canvasId,
-            afterDatasetsDraw: function(chart) {
-                var c = chart.ctx;
-                var isPie = (chart.config.type === 'pie' || chart.config.type === 'doughnut');
-                var isStacked = chart.options.scales && chart.options.scales.y && chart.options.scales.y.stacked;
-
-                if (isPie) {
-                    // 饼图：检查可见性
-                    var ds = chart.data.datasets[0];
-                    if (!ds) return;
-                    var total = 0;
-                    ds.data.forEach(function(v, i) {
-                        if (chart.getDataVisibility(i)) total += (v || 0);
-                    });
-                    ds.data.forEach(function(val, i) {
-                        if (!val && val !== 0) return;
-                        if (!chart.getDataVisibility(i)) return;
-                        var meta = chart.getDatasetMeta(0);
-                        var el = meta.data[i];
-                        if (!el) return;
-                        c.save();
-                        c.fillStyle = '#fff';
-                        c.font = '10px sans-serif';
-                        c.textAlign = 'center';
-                        c.textBaseline = 'middle';
-                        var pos = el.tooltipPosition();
-                        var pct = total > 0 ? (val / total * 100).toFixed(1) + '%' : '';
-                        c.fillText(val + (pct ? ' (' + pct + ')' : ''), pos.x, pos.y);
-                        c.restore();
-                    });
-                } else if (isStacked) {
-                    // 堆叠模式：每个区块在右侧用引线显示具体数值
-                    var numPoints = chart.data.labels ? chart.data.labels.length : 0;
-                    for (var i = 0; i < numPoints; i++) {
-                        // 收集该柱子所有可见区块的数值和位置
-                        var segments = [];
-                        for (var d = 0; d < chart.data.datasets.length; d++) {
-                            if (!chart.isDatasetVisible(d)) continue;
-                            var val = chart.data.datasets[d].data[i] || 0;
-                            if (!val) continue;
-                            var meta = chart.getDatasetMeta(d);
-                            if (!meta.data[i]) continue;
-                            var pos = meta.data[i].tooltipPosition();
-                            segments.push({ val: val, x: pos.x, y: pos.y, dsIdx: d });
-                        }
-                        if (!segments.length) continue;
-                        var barX = segments[0].x;
-                        // 右侧起始X偏移
-                        var rightOffset = 18;
-                        var lineHeight = 14;
-                        segments.forEach(function(seg, sIdx) {
-                            c.save();
-                            // 引线起点（柱子区块中心）
-                            var startX = barX;
-                            var startY = seg.y;
-                            // 引线终点（右侧偏移）
-                            var endX = barX + rightOffset + 6;
-                            var endY = startY;
-                            // 绘制引线
-                            c.strokeStyle = '#94a3b8';
-                            c.lineWidth = 1;
-                            c.beginPath();
-                            c.moveTo(startX + 2, startY);
-                            c.lineTo(endX - 2, endY);
-                            c.stroke();
-                            // 小圆点
-                            c.fillStyle = '#94a3b8';
-                            c.beginPath();
-                            c.arc(startX + 2, startY, 2, 0, Math.PI * 2);
-                            c.fill();
-                            // 数值文本
-                            c.fillStyle = '#333';
-                            c.font = '9px sans-serif';
-                            c.textAlign = 'left';
-                            c.textBaseline = 'middle';
-                            c.fillText(seg.val, endX + 1, endY);
-                            c.restore();
-                        });
-                    }
-                } else {
-                    // 普通模式：每个数据点显示数值
-                    chart.data.datasets.forEach(function(ds, dsIdx) {
-                        if (!chart.isDatasetVisible(dsIdx)) return;
-                        var meta = chart.getDatasetMeta(dsIdx);
-                        meta.data.forEach(function(el, i) {
-                            var val = ds.data[i];
-                            if (!val && val !== 0) return;
-                            c.save();
-                            c.fillStyle = '#333';
-                            c.font = '10px sans-serif';
-                            c.textAlign = 'center';
-                            c.textBaseline = 'middle';
-                            var pos = el.tooltipPosition();
-                            c.fillText(val, pos.x, pos.y - 8);
-                            c.restore();
-                        });
-                    });
-                }
-            }
-        };
-    }
-
     function renderChart(container, data) {
         var chartType = data.chart_type || 'bar';
         var isPieType = (chartType === 'pie' || chartType === 'doughnut');
@@ -525,22 +420,99 @@
         // 刷新时不播放动画，首次加载时播放
         var animOpt = isRefresh ? false : { duration: 600 };
 
-        // 构建内联插件列表（每个图表独立，不污染全局）
-        var inlinePlugins = [];
-        if (showLabels) {
-            inlinePlugins.push(createDataLabelPlugin(canvasId));
-        }
+        // 自定义数据标签插件（使用 Canvas 直接绘制，不依赖外部插件）
+        var labelPlugin = showLabels ? [{
+            id: 'customLabels',
+            afterDatasetsDraw: function(chart) {
+                var ctx = chart.ctx;
+                if (isPieType) {
+                    // 饼图：在扇区内显示数值和百分比
+                    var ds = chart.data.datasets[0];
+                    if (!ds) return;
+                    var total = ds.data.reduce(function(a, b) { return a + b; }, 0);
+                    ds.data.forEach(function(val, i) {
+                        if (!chart.getDataVisibility(i) || !val) return;
+                        var meta = chart.getDatasetMeta(0);
+                        var el = meta.data[i];
+                        if (!el) return;
+                        ctx.save();
+                        ctx.fillStyle = '#fff';
+                        ctx.font = 'bold 10px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        var pos = el.tooltipPosition();
+                        var pct = total > 0 ? (val / total * 100).toFixed(1) + '%' : '';
+                        ctx.fillText(val + (pct ? ' (' + pct + ')' : ''), pos.x, pos.y);
+                        ctx.restore();
+                    });
+                } else if (isStacked) {
+                    // 堆叠模式：每个数据点的色块右侧垂直中心显示数值
+                    var chartBottom = chart.chartArea.bottom;
+                    var visibleDs = [];
+                    for (var d = 0; d < chart.data.datasets.length; d++) {
+                        if (chart.isDatasetVisible(d)) visibleDs.push(d);
+                    }
+                    // 对每个数据点位置
+                    for (var i = 0; i < labels.length; i++) {
+                        var prevBottomY = chartBottom;
+                        for (var vi = 0; vi < visibleDs.length; vi++) {
+                            var dsIdx = visibleDs[vi];
+                            var ds = chart.data.datasets[dsIdx];
+                            var val = ds.data[i];
+                            if (!val) {
+                                var m0 = chart.getDatasetMeta(dsIdx);
+                                if (m0.data[i]) prevBottomY = m0.data[i].y;
+                                continue;
+                            }
+                            var meta = chart.getDatasetMeta(dsIdx);
+                            if (!meta.data[i]) continue;
+                            var el = meta.data[i];
+                            var topY = el.y;
+                            var areaHeight = prevBottomY - topY;
+                            // 只在区域高度足够时显示标签
+                            if (areaHeight >= 10) {
+                                var labelY = (topY + prevBottomY) / 2;
+                                ctx.save();
+                                ctx.fillStyle = '#1e293b';
+                                ctx.font = 'bold 9px sans-serif';
+                                ctx.textAlign = 'left';
+                                ctx.textBaseline = 'middle';
+                                ctx.fillText(val, el.x + 6, labelY);
+                                ctx.restore();
+                            }
+                            prevBottomY = topY;
+                        }
+                    }
+                } else {
+                    // 普通模式：每个数据点上方显示数值
+                    chart.data.datasets.forEach(function(ds, dsIdx) {
+                        if (!chart.isDatasetVisible(dsIdx)) return;
+                        var meta = chart.getDatasetMeta(dsIdx);
+                        meta.data.forEach(function(el, i) {
+                            var val = ds.data[i];
+                            if (!val && val !== 0) return;
+                            ctx.save();
+                            ctx.fillStyle = '#333';
+                            ctx.font = '10px sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'bottom';
+                            ctx.fillText(val, el.x, el.y - 6);
+                            ctx.restore();
+                        });
+                    });
+                }
+            }
+        }] : [];
 
         var config;
         if (isPieType) {
-            config = { type: chartType, data: { labels: labels, datasets: datasets }, plugins: inlinePlugins, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, plugins: plugins, layout: { padding: { top: 10, right: 10, bottom: 10, left: 10 } } } };
+            config = { type: chartType, data: { labels: labels, datasets: datasets }, plugins: labelPlugin, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, plugins: plugins, layout: { padding: { top: 10, right: 10, bottom: 10, left: 10 } } } };
         } else {
             var scalesOpt = { x: { stacked: isStacked }, y: { beginAtZero: true, stacked: isStacked } };
-            // 堆叠模式需要更多右侧间距给引线标签
             var chartPadding = isStacked && showLabels
                 ? { top: 20, right: 80, bottom: 10, left: 10 }
                 : { top: 20, right: 10, bottom: 10, left: 10 };
-            config = { type: realType, data: { labels: labels, datasets: datasets }, plugins: inlinePlugins, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, indexAxis: isHorizontal ? 'y' : 'x', plugins: plugins, scales: scalesOpt, layout: { padding: chartPadding } } };
+            config = { type: realType, data: { labels: labels, datasets: datasets }, plugins: labelPlugin, options: { responsive: true, maintainAspectRatio: false, animation: animOpt, indexAxis: isHorizontal ? 'y' : 'x', plugins: plugins, scales: scalesOpt, layout: { padding: chartPadding } } };
         }
 
         // 销毁旧图表
